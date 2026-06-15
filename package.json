@@ -1,0 +1,19 @@
+{
+  "name": "interhuman-signals-realtime",
+  "version": "1.0.0",
+  "description": "Camera ao vivo -> Interhuman Signals API (12 sinais sociais + engagement + CQI) com proxy seguro de WebSocket",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

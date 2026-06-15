@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Interhuman Signals — Realtime</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%237c3aed'/%3E%3Ctext x='32' y='44' font-size='40' font-family='sans-serif' font-weight='800' fill='white' text-anchor='middle'%3EI%3C/text%3E%3C/svg%3E" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">I</div>
+      <div>
+        <h1>Interhuman Signals — Realtime</h1>
+        <p class="sub">12 sinais sociais · engagement · conversation quality index · <span class="endpoint">wss://api.interhuman.ai/v1/stream/analyze</span></p>
+      </div>
+    </div>
+    <div class="status-cluster">
+      <div id="connBadge" class="badge badge-idle">desconectado</div>
+      <div id="sessionTimer" class="timer">00:00</div>
+    </div>
+  </header>
+
+  <main class="grid">
+    <!-- VIDEO -->
+    <section class="card video-card">
+      <div class="card-h">
+        <h2>Câmera</h2>
+        <span id="videoMeta" class="meta">—</span>
+      </div>
+      <div class="video-wrap">
+        <video id="preview" autoplay playsinline muted></video>
+        <div class="rec-dot" id="recDot" hidden></div>
+      </div>
+      <div class="controls">
+        <button id="startBtn" class="btn btn-primary">▶ Iniciar análise</button>
+        <button id="stopBtn" class="btn btn-ghost" disabled>■ Parar</button>
+      </div>
+      <div class="stream-stats">
+        <div><span>segmentos enviados</span><strong id="segCount">0</strong></div>
+        <div><span>bytes enviados</span><strong id="bytesSent">0</strong></div>
+        <div><span>último chunk</span><strong id="lastChunk">—</strong></div>
+        <div><span>codec</span><strong id="codecUsed">—</strong></div>
+      </div>
+    </section>
+
+    <!-- ENGAGEMENT -->
+    <section class="card engagement-card">
+      <div class="card-h">
+        <h2>Engagement state</h2>
+        <span class="meta">attention monitor</span>
+      </div>
+      <div id="engageBig" class="engage-big engage-neutral">
+        <span class="engage-label">aguardando</span>
+        <span class="engage-since">—</span>
+      </div>
+      <div class="engage-legend">
+        <span><i class="dot engaged"></i> engaged</span>
+        <span><i class="dot neutral"></i> neutral</span>
+        <span><i class="dot disengaged"></i> disengaged</span>
+      </div>
+      <div class="engage-timeline" id="engageTimeline" aria-label="engagement timeline"></div>
+    </section>
+
+    <!-- 12 SOCIAL SIGNALS -->
+    <section class="card signals-card">
+      <div class="card-h">
+        <h2>Sinais sociais</h2>
+        <span class="meta">12 detectores · agreement, confidence, confusion, disagreement, disengagement, engagement, frustration, hesitation, interest, skepticism, stress, uncertainty</span>
+      </div>
+      <div id="signalGrid" class="signal-grid">
+        <!-- chips injetados via JS -->
+      </div>
+      <div class="card-sub">
+        <h3>Últimas detecções <small id="histCount">0</small></h3>
+        <ul id="signalHistory" class="history"></ul>
+      </div>
+    </section>
+
+    <!-- CQI -->
+    <section class="card cqi-card">
+      <div class="card-h">
+        <h2>Conversation Quality Index</h2>
+        <span class="meta">0-100 · média das 5 dimensões</span>
+      </div>
+      <div class="cqi-main">
+        <div class="cqi-gauge" id="cqiGauge">
+          <svg viewBox="0 0 200 200" class="gauge-svg">
+            <circle cx="100" cy="100" r="86" class="gauge-bg" />
+            <circle cx="100" cy="100" r="86" class="gauge-fg" id="gaugeFg" />
+          </svg>
+          <div class="gauge-center">
+            <span id="cqiScore" class="cqi-score">—</span>
+            <span id="cqiBand" class="cqi-band">sem dados</span>
+          </div>
+        </div>
+        <div class="cqi-dims">
+          <div class="dim" data-dim="clarity"><label>Clarity & Structure</label><div class="bar"><div></div></div><span>—</span></div>
+          <div class="dim" data-dim="authority"><label>Authority & Credibility</label><div class="bar"><div></div></div><span>—</span></div>
+          <div class="dim" data-dim="energy"><label>Energy & Presence</label><div class="bar"><div></div></div><span>—</span></div>
+          <div class="dim" data-dim="rapport"><label>Rapport & Safety</label><div class="bar"><div></div></div><span>—</span></div>
+          <div class="dim" data-dim="learning"><label>Learning & Exploration</label><div class="bar"><div></div></div><span>—</span></div>
+        </div>
+      </div>
+      <div class="card-sub">
+        <h3>Timeline CQI</h3>
+        <canvas id="cqiTimeline" width="800" height="120"></canvas>
+      </div>
+    </section>
+
+    <!-- RAW LOG -->
+    <section class="card log-card">
+      <div class="card-h">
+        <h2>Eventos raw</h2>
+        <span class="meta" id="logCount">0 eventos</span>
+      </div>
+      <ul id="rawLog" class="raw-log"></ul>
+    </section>
+  </main>
+
+  <script src="config.js"></script>
+  <script src="app.js" type="module"></script>
+</body>
+</html>
