@@ -38,26 +38,6 @@ app.get('/health', (_req, res) => res.json({
   originsAllowed: ALLOWED_ORIGINS,
 }));
 
-// Deploy helper — serves the base64-encoded bundle for the SiteGround upload
-// flow. CORS + Private Network Access enabled so a tab on https://tools.siteground.com
-// can fetch from http://localhost:3737. Intentionally read-only & local-only.
-app.options('/upload-payload', (_req, res) => {
-  res.set({
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET',
-    'Access-Control-Allow-Private-Network': 'true',
-    'Access-Control-Max-Age': '600',
-  });
-  res.status(204).end();
-});
-app.get('/upload-payload', (_req, res) => {
-  res.set({
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Private-Network': 'true',
-  });
-  res.sendFile(path.join(__dirname, 'upload-payload.json'));
-});
-
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
 
