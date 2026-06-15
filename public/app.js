@@ -145,12 +145,12 @@ async function startSession() {
     return;
   }
 
-  // open WS to proxy (config.js can override with prod URL)
+  // open WS to proxy (config.js can override with prod URL + bake-in passcode)
   setConn('conectando proxy…', 'badge-connecting');
   const cfg = window.IH_CONFIG || {};
   const defaultUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
   let wsBase = cfg.wsUrl || defaultUrl;
-  const passcode = new URLSearchParams(location.search).get('p') || '';
+  const passcode = new URLSearchParams(location.search).get('p') || cfg.passcode || '';
   const wsUrl = passcode ? `${wsBase}?p=${encodeURIComponent(passcode)}` : wsBase;
   state.ws = new WebSocket(wsUrl);
   state.ws.binaryType = 'arraybuffer';
