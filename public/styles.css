@@ -430,6 +430,325 @@ a:hover { text-decoration: underline; text-underline-offset: 3px; }
 ::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-xlo); }
 
+/* ============= Global touch/iOS fixes ============= */
+* { -webkit-tap-highlight-color: transparent; }
+button, a, .chip, .mini-chip, [role="button"] { touch-action: manipulation; }
+input, textarea, select { font-size: 16px; }
+html { scroll-behavior: smooth; }
+@media (hover: none) {
+  .card:hover { box-shadow: var(--shadow-sm); }
+  .btn-primary:hover:not(:disabled) { transform: none; }
+  .btn-ghost:hover:not(:disabled) { background: var(--surface-2); }
+}
+
+/* ============= MOBILE — overrides agressivos pra <= 720px ============= */
+@media (max-width: 720px) {
+  body {
+    flex-direction: column;
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
+  /* ===== Rail vira header compacto top ===== */
+  .rail {
+    width: 100%; min-height: auto;
+    flex-direction: row; padding: 10px 14px;
+    padding-top: max(10px, env(safe-area-inset-top));
+    justify-content: space-between; align-items: center;
+    position: sticky; top: 0; z-index: 30;
+    box-shadow: 0 2px 12px rgba(0,46,70,.12);
+  }
+  .rail-logo { flex-direction: row; gap: 8px; }
+  .rail-logo svg { width: 32px; height: 32px; }
+  .rail-wordmark { font-size: 18px; }
+  .rail-spacer { display: none; }
+  .rail-tag {
+    writing-mode: horizontal-tb; transform: none;
+    font-size: 9px; letter-spacing: .25em; opacity: .85;
+  }
+
+  /* ===== Topbar mobile ===== */
+  .topbar {
+    padding: 12px 14px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .topbar h1 { font-size: 16px; }
+  .topbar .sub { font-size: 11px; line-height: 1.4; }
+  .status-cluster {
+    width: 100%;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .timer {
+    font-size: 11px; padding: 6px 10px;
+  }
+  .badge { padding: 6px 10px; font-size: 10px; }
+
+  /* User pill compacto em mobile */
+  .user-pill {
+    padding: 4px 4px 4px 10px;
+    font-size: 10px;
+  }
+  .user-email { max-width: 130px; font-size: 11px; }
+  .user-logout {
+    min-height: 32px; padding: 6px 10px;
+  }
+
+  /* ===== Grid mobile single column ===== */
+  .grid {
+    grid-template-columns: 1fr !important;
+    grid-template-areas:
+      "video"
+      "engagement"
+      "cqi"
+      "signals"
+      "log" !important;
+    padding: 12px;
+    gap: 12px;
+  }
+
+  /* ===== Card mobile ===== */
+  .card { padding: 16px; border-radius: 14px; }
+  .card-h { margin-bottom: 12px; }
+  h2 { font-size: 10px; }
+
+  /* ===== Video card mobile ===== */
+  .video-wrap {
+    aspect-ratio: 16/10;
+    border-radius: 10px;
+  }
+  .controls { gap: 8px; }
+  .btn {
+    padding: 14px 16px;
+    font-size: 14px;
+    min-height: 48px;
+    border-radius: 999px;
+  }
+  .stream-stats {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .stream-stats > div { padding: 8px 10px; }
+  .stream-stats span { font-size: 9px; }
+  .stream-stats strong { font-size: 12px; }
+
+  /* ===== Engagement mobile ===== */
+  .engage-big { padding: 16px; }
+  .engage-label { font-size: 20px; }
+  .engage-legend { font-size: 10px; gap: 12px; margin-top: 10px; }
+
+  /* ===== Signals chips 2-col em mobile ===== */
+  .signal-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .chip { padding: 10px 12px; border-radius: 10px; }
+  .chip-name { font-size: 11px; gap: 6px; }
+  .chip-prob { font-size: 9px; padding: 2px 6px; }
+  .chip-rationale { font-size: 10px; line-height: 1.35; }
+  .history li {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+  .history .t-time { justify-self: end; }
+
+  /* ===== CQI compacto ===== */
+  .cqi-main {
+    grid-template-columns: 1fr !important;
+    gap: 16px;
+  }
+  .cqi-gauge {
+    width: 160px; height: 160px;
+    margin: 0 auto;
+  }
+  .cqi-score { font-size: 36px; }
+  .cqi-band { font-size: 10px; }
+  .dim {
+    grid-template-columns: 100px 1fr 32px;
+    gap: 8px;
+  }
+  .dim label { font-size: 10px; }
+  .dim span { font-size: 11px; }
+  #cqiTimeline {
+    height: 90px;
+  }
+
+  /* ===== Log raw — colapsado por default ===== */
+  .log-card {
+    max-height: 64px;
+    overflow: hidden;
+    transition: max-height .35s ease;
+  }
+  .log-card.open { max-height: 1000px; }
+  .log-card .card-h { cursor: pointer; }
+  .log-card .card-h::after {
+    content: '▼';
+    color: var(--text-lo);
+    font-size: 10px;
+    transition: transform .25s;
+  }
+  .log-card.open .card-h::after { transform: rotate(180deg); }
+  .raw-log {
+    max-height: 240px;
+    font-size: 10px;
+  }
+  .raw-log li {
+    grid-template-columns: 64px 1fr;
+    grid-template-rows: auto auto;
+    gap: 4px 8px;
+    padding: 6px 8px;
+  }
+  .raw-log .l-time { grid-column: 1; grid-row: 1; }
+  .raw-log .l-type { grid-column: 2; grid-row: 1; }
+  .raw-log .l-data { grid-column: 1 / -1; grid-row: 2; font-size: 10px; }
+
+  /* ===== Footer compacto ===== */
+  .foot {
+    padding: 14px 16px max(14px, env(safe-area-inset-bottom));
+    font-size: 10px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+  .foot .dotsep { display: none; }
+  .foot .endpoint { font-size: 9px; word-break: break-all; }
+
+  /* ===== Overlay mobile ===== */
+  .overlay { padding: 12px; }
+
+  body[data-phase="questioning"] .overlay-questioning {
+    padding: 0;
+    flex-direction: column;
+    justify-content: flex-start;
+    gap: 12px;
+  }
+
+  /* Question card — full screen vertical em mobile */
+  .question-card {
+    width: 100%; max-width: 100%;
+    border-radius: 18px;
+    padding: 22px 18px 18px;
+    margin: max(12px, env(safe-area-inset-top)) 12px 12px;
+  }
+  .q-num { font-size: 10px; }
+  .q-time {
+    font-size: 14px; font-weight: 700;
+    padding: 6px 12px; border-radius: 999px;
+  }
+  .q-text {
+    font-size: 20px; line-height: 1.35;
+    margin: 14px 0 18px;
+  }
+  .q-progress { height: 5px; margin-bottom: 14px; }
+
+  /* Mic indicator destacado em mobile */
+  .q-mic {
+    padding: 14px 16px;
+    border-radius: 16px;
+  }
+  .mic-bars { height: 22px; gap: 4px; }
+  .mic-bars i { width: 4px; }
+  .mic-label { font-size: 13px; font-weight: 600; }
+
+  /* PIP grande em mobile — posicionado ABAIXO da pergunta */
+  .pip {
+    position: fixed !important;
+    left: 50% !important; right: auto !important;
+    transform: translateX(-50%);
+    bottom: max(20px, env(safe-area-inset-bottom)) !important;
+    width: min(60vw, 220px) !important;
+    aspect-ratio: 4/3 !important;
+    border-radius: 16px;
+    border-width: 3px;
+  }
+
+  /* Mini-signals: escondido em mobile (questão precisa de foco total) */
+  .mini-signals { display: none !important; }
+
+  /* ===== Report card mobile ===== */
+  .report-card {
+    padding: 24px 16px 20px;
+    border-radius: 18px;
+    margin: max(12px, env(safe-area-inset-top)) 0;
+    max-height: calc(100vh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    padding-bottom: 88px;  /* espaço pro sticky button */
+  }
+  .r-header h2 { font-size: 18px; }
+  .r-sub { font-size: 11px; }
+  .r-close {
+    width: 40px; height: 40px;
+    font-size: 22px;
+    flex-shrink: 0;
+  }
+  /* Stats 2x2 mobile */
+  .r-stats {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+  .r-stat { padding: 12px 10px; }
+  .r-stat span { font-size: 9px; }
+  .r-stat strong { font-size: 20px; }
+
+  .r-markdown { font-size: 13px; line-height: 1.55; }
+  .r-markdown h2 { font-size: 17px; margin-bottom: 10px; }
+  .r-markdown h3 {
+    font-size: 11px; margin: 20px 0 8px;
+  }
+  .r-markdown p { margin-bottom: 12px; }
+  .r-markdown ul { padding-left: 18px; }
+
+  .r-questions h3 { font-size: 10px; }
+  .r-questions li {
+    padding: 10px 12px 10px 42px;
+    font-size: 12px;
+  }
+  .r-questions li::before { width: 20px; height: 20px; font-size: 10px; left: 10px; }
+  .q-tag { font-size: 9px; padding: 2px 7px; }
+
+  /* Nova sessão sticky bottom em mobile */
+  .r-actions {
+    position: sticky; bottom: 0;
+    margin: 16px -16px -20px;
+    padding: 14px 16px max(14px, env(safe-area-inset-bottom));
+    background: linear-gradient(180deg, transparent 0%, white 30%, white 100%);
+    border-top: 1px solid var(--border);
+  }
+  .r-actions .btn {
+    min-height: 52px;
+    font-size: 15px;
+  }
+
+  /* Loader (connecting/finalizing) mobile */
+  .loader { padding: 32px 24px; }
+  .loader-text { font-size: 15px; }
+  .loader-sub { font-size: 11px; }
+}
+
+/* ============= EXTRA TIGHT — iPhone SE / pequenos (<= 380px) ============= */
+@media (max-width: 380px) {
+  .grid { padding: 10px; gap: 10px; }
+  .card { padding: 14px; }
+  .topbar { padding: 10px 12px; gap: 8px; }
+  .topbar h1 { font-size: 15px; }
+  .topbar .sub { font-size: 10px; }
+
+  .signal-grid { gap: 6px; }
+  .chip { padding: 8px 10px; }
+  .chip-name { font-size: 10px; }
+  .chip-prob { font-size: 8px; }
+
+  .cqi-gauge { width: 140px; height: 140px; }
+  .cqi-score { font-size: 32px; }
+
+  .q-text { font-size: 18px; }
+  .pip { width: min(70vw, 200px) !important; }
+}
+
 /* ============= OVERLAY — session phases ============= */
 .overlay {
   position: fixed; inset: 0; z-index: 50;
@@ -695,3 +1014,42 @@ body[data-phase="questioning"] .grid,
 body[data-phase="finalizing"]  .grid,
 body[data-phase="reporting"]   .grid,
 body[data-phase="connecting"]  .grid { opacity: .35; pointer-events: none; }
+
+/* ============= MOBILE FIX overrides — declarados depois das defs desktop pra vencer cascade ============= */
+@media (max-width: 720px) {
+  .r-stats { grid-template-columns: 1fr 1fr !important; gap: 8px !important; }
+  .cqi-main { grid-template-columns: 1fr !important; }
+  .grid {
+    grid-template-columns: 1fr !important;
+    grid-template-areas:
+      "video"
+      "engagement"
+      "cqi"
+      "signals"
+      "log" !important;
+  }
+  .signal-grid { grid-template-columns: 1fr 1fr !important; }
+  .topbar { flex-direction: column !important; align-items: flex-start !important; }
+  .status-cluster { width: 100% !important; flex-wrap: wrap !important; }
+  body { flex-direction: column !important; }
+  .rail {
+    width: 100% !important; min-height: auto !important;
+    flex-direction: row !important; padding: 10px 14px !important;
+    padding-top: max(10px, env(safe-area-inset-top)) !important;
+    justify-content: space-between !important;
+    position: sticky !important; top: 0 !important;
+  }
+  .rail-spacer { display: none !important; }
+  .rail-tag {
+    writing-mode: horizontal-tb !important;
+    transform: none !important;
+    font-size: 9px !important;
+    opacity: .85;
+  }
+  .rail-logo svg { width: 32px !important; height: 32px !important; }
+  .rail-logo .rail-wordmark { font-size: 18px !important; }
+}
+@media (max-width: 380px) {
+  .signal-grid { gap: 6px !important; }
+  .cqi-gauge { width: 140px !important; height: 140px !important; }
+}

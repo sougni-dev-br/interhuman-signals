@@ -49,7 +49,9 @@ const QUESTION_MS = 20000;
 const QUESTIONS_N = 5;
 const FINALIZE_MS = 5000;       // flush window for late signals
 const AUDIO_SAMPLE_MS = 100;
-const AUDIO_RMS_THRESHOLD = 6;  // 0-128 — calibrated for typical speech
+// 0-128 — calibrated for speech. Mobile mics tend a bit quieter / mais ruído de fundo.
+const IS_MOBILE = matchMedia('(max-width: 720px)').matches || /android|iphone|ipad|mobile/i.test(navigator.userAgent);
+const AUDIO_RMS_THRESHOLD = IS_MOBILE ? 4.5 : 6;
 
 // ============= State =============
 const state = {
@@ -221,8 +223,17 @@ async function startSession() {
 
   try {
     state.mediaStream = await navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 24 } },
-      audio: true,
+      video: {
+        facingMode: 'user',   // câmera frontal em mobile
+        width: { ideal: 640 },
+        height: { ideal: 480 },
+        frameRate: { ideal: 24 },
+      },
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
     });
     preview.srcObject = state.mediaStream;
     pipVideo.srcObject = state.mediaStream;
@@ -873,6 +884,17 @@ function escapeHtml(s) {
   logoutBtn.addEventListener('click', () => {
     localStorage.removeItem('ego_auth');
     location.replace('login.html');
+  });
+})();
+
+// ============= Log card toggle (mobile collapse) =============
+(function setupLogToggle() {
+  const logCard = document.querySelector('.log-card');
+  if (!logCard) return;
+  const header = logCard.querySelector('.card-h');
+  if (!header) return;
+  header.addEventListener('click', () => {
+    logCard.classList.toggle('open');
   });
 })();
 
