@@ -885,11 +885,13 @@ function escapeHtml(s) {
   const userEmail = document.getElementById('userEmail');
   const logoutBtn = document.getElementById('logoutBtn');
   if (!cfg.userEmail || !userPill) return;
-  userEmail.textContent = cfg.userEmail;
+  const isGuest = cfg.userRole === 'guest';
+  userEmail.textContent = isGuest ? '🎭 visitante' : cfg.userEmail;
+  if (isGuest) userPill.classList.add('user-pill-guest');
   userPill.hidden = false;
   logoutBtn.addEventListener('click', () => {
     localStorage.removeItem('ego_auth');
-    location.replace('login.html');
+    location.replace('../login.html');
   });
 })();
 
@@ -928,9 +930,21 @@ async function loadBenchmarks() {
 function renderBenchmarks(data) {
   const strip = document.getElementById('benchStrip');
   if (!strip) return;
+  if (data?.reason === 'guest_mode') {
+    strip.hidden = false;
+    strip.classList.add('guest');
+    document.getElementById('benchSub').textContent = 'modo visitante · sem linha de base';
+    // Hide bench cards for guest
+    document.getElementById('benchCards').style.display = 'none';
+    const note = document.getElementById('benchNote');
+    note.innerHTML = '🎭 <strong>modo visitante</strong> — esta sessão não tem dados Read.AI pra comparar. O perfilamento Claude ainda funciona com seus sinais ao vivo do Interhuman.';
+    note.hidden = false;
+    note.classList.add('guest-note');
+    return;
+  }
   if (!data || !data.available) {
     strip.hidden = false;
-    document.getElementById('benchSub').textContent = 'histórico Read.AI indisponível (' + (data?.reason || data?.error || 'sem dados') + ')';
+    document.getElementById('benchSub').textContent = 'linha de base indisponível (' + (data?.reason || data?.error || 'sem dados') + ')';
     return;
   }
   strip.hidden = false;
@@ -950,6 +964,10 @@ function renderBenchmarks(data) {
   if (data.recent_titles?.length) {
     note.textContent = `referência: "${data.recent_titles[0].title}" e mais ${Math.max(0, data.recent_titles.length - 1)} reuniões recentes`;
     note.hidden = false;
+  } else if (data.reason === 'guest_mode') {
+    note.innerHTML = '🎭 <strong>modo visitante</strong> — esta sessão não tem linha de base pra comparar. O perfilamento ainda funciona com seus sinais ao vivo.';
+    note.hidden = false;
+    note.classList.add('guest-note');
   }
 
   // Toggle button
@@ -1006,11 +1024,11 @@ showReport = function (payload, data) {
   banner.className = 'r-bench-banner';
   const diff = Math.round(live) - Math.round(histR);
   const arrow = diff > 5 ? 'acima' : diff < -5 ? 'abaixo' : 'no mesmo nível';
-  banner.innerHTML = `Sua CQI hoje (<strong>${Math.round(live)}</strong>) está <strong>${arrow}</strong> da sua média Read.AI dos últimos 90 dias (<strong>${Math.round(histR)}</strong> · n=${b.benchmarks.read_score.n})`;
+  banner.innerHTML = `Sua CQI hoje (<strong>${Math.round(live)}</strong>) está <strong>${arrow}</strong> da sua linha de base dos últimos 90 dias (<strong>${Math.round(histR)}</strong> · n=${b.benchmarks.read_score.n})`;
   md.prepend(banner);
 };
 
 loadBenchmarks();
 
 // Initial UI hint
-pushRaw('proxy', 'pronto', { hint: 'v2 · clique em "Iniciar sessão" — sua sessão será comparada com seu histórico Read.AI' });
+pushRaw('proxy', 'pronto', { hint: 'v2 · clique em "Iniciar sessão" — sua sessão será comparada com sua linha de base' });

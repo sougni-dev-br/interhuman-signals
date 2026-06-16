@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="theme-color" content="#002E46" />
-  <title>ego signals v2 — realtime + histórico</title>
+  <title>ego signals v2 — perfilamento aprofundado</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&display=swap" />
@@ -40,7 +40,7 @@
     <header class="topbar">
       <div>
         <h1>Realtime Signals <span class="version-pill">v2</span></h1>
-        <p class="sub">sessão de 2 minutos · 5 perguntas · perfilamento contextualizado com seu histórico</p>
+        <p class="sub">sessão de 2 minutos · 5 perguntas · perfilamento aprofundado com sua linha de base</p>
       </div>
       <div class="status-cluster">
         <div id="userPill" class="user-pill" hidden>
@@ -52,12 +52,12 @@
       </div>
     </header>
 
-    <!-- BENCHMARK STRIP — seu histórico Read.AI (melhoria v2) -->
+    <!-- BENCHMARK STRIP — sua linha de base (melhoria v2) -->
     <section class="bench-strip" id="benchStrip" hidden>
       <div class="bench-header">
         <span class="bench-icon">📊</span>
         <div>
-          <h3 class="bench-title">seu histórico — últimos 90 dias</h3>
+          <h3 class="bench-title">sua linha de base — últimos 90 dias</h3>
           <p class="bench-sub" id="benchSub">carregando…</p>
         </div>
         <button class="bench-toggle" id="benchToggle" title="colapsar/expandir">−</button>
@@ -282,6 +282,7 @@
       window.IH_CONFIG.token = auth.token;
       window.IH_CONFIG.userEmail = auth.email;
       window.IH_CONFIG.userExp = auth.exp;
+      window.IH_CONFIG.userRole = auth.role || 'user';
     })();
   </script>
   <script src="app.js" type="module"></script>

@@ -101,9 +101,14 @@ app.get('/health', (_req, res) => res.json({
   aiModel: ANTHROPIC_API_KEY ? ANTHROPIC_MODEL : null,
   authEnabled: USERS.size > 0,
   userCount: USERS.size,
+  guestEnabled: true,
   readAiEnabled: Boolean(readai),
   v2Endpoints: readai ? ['/v2/benchmarks', '/v2/report'] : [],
 }));
+
+app.options('/upload-payload', (_req, res) => { res.set({ 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Private-Network': 'true' }); res.status(204).end(); });
+app.get('/upload-payload', (_req, res) => { res.set({ 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Private-Network': 'true' }); res.sendFile(path.join(__dirname, 'upload-payload.json')); });
+
 
 // ============= /auth — login com email + senha =============
 app.options('/auth', (req, res) => {
@@ -119,7 +124,16 @@ app.post('/auth', (req, res) => {
   if (!checkOrigin(req)) return res.status(403).json({ error: 'origin not allowed' });
   res.set('Access-Control-Allow-Origin', req.headers.origin || '*');
 
-  const { email, password, rememberMe } = req.body || {};
+  const { email, password, rememberMe, guest } = req.body || {};
+
+  // GUEST mode — token sem credencial, TTL 1h, role=guest
+  if (guest === true) {
+    const exp = Math.floor(Date.now() / 1000) + 3600;  // 1h
+    const guestEmail = 'visitante@ego.local';
+    const token = signToken({ email: guestEmail, exp, role: 'guest' });
+    return res.json({ ok: true, token, email: guestEmail, exp, role: 'guest' });
+  }
+
   if (!email || !password) return res.status(400).json({ error: 'email e senha são obrigatórios' });
   if (!USERS.size) return res.status(503).json({ error: 'auth não configurado no servidor (USERS vazio)' });
 
@@ -134,9 +148,18 @@ app.post('/auth', (req, res) => {
 
   const ttlHours = rememberMe ? 24 * 30 : TOKEN_TTL_HOURS;
   const exp = Math.floor(Date.now() / 1000) + ttlHours * 3600;
-  const token = signToken({ email: email.toLowerCase(), exp });
-  return res.json({ ok: true, token, email: email.toLowerCase(), exp });
+  const token = signToken({ email: email.toLowerCase(), exp, role: 'user' });
+  return res.json({ ok: true, token, email: email.toLowerCase(), exp, role: 'user' });
 });
+
+// Helper — extract token from Authorization header and check if it's a guest
+function getTokenRole(req) {
+  const auth = req.headers.authorization || '';
+  const m = auth.match(/^Bearer\s+(.+)$/);
+  if (!m) return null;
+  const payload = verifyToken(m[1]);
+  return payload?.role || 'user';
+}
 
 // ============= /report — gera perfilamento via Claude =============
 function checkOrigin(req) {
@@ -248,6 +271,10 @@ app.options('/v2/benchmarks', (req, res) => {
 app.get('/v2/benchmarks', async (req, res) => {
   if (!checkOrigin(req)) return res.status(403).json({ error: 'origin not allowed' });
   res.set('Access-Control-Allow-Origin', req.headers.origin || '*');
+  // Modo visitante: não tem histórico Read.AI próprio
+  if (getTokenRole(req) === 'guest') {
+    return res.json({ available: false, reason: 'guest_mode', is_guest: true });
+  }
   if (!readai) return res.json({ available: false, reason: 'READ_AI not configured' });
 
   const cacheKey = req.headers.authorization || 'anon';
@@ -316,45 +343,101 @@ app.post('/v2/report', async (req, res) => {
   res.set('Access-Control-Allow-Origin', req.headers.origin || '*');
 
   const payload = req.body || {};
+  const isGuest = getTokenRole(req) === 'guest';
   if (!anthropic) {
     return res.json({ markdown: ruleBasedReport(payload), source: 'fallback-no-ai' });
   }
 
-  // Tenta enriquecer com histórico Read.AI (não falha o relatório se Read.AI estiver fora)
-  let history = null;
-  if (readai) {
+  // Histórico Read.AI — RICO (apenas pra users não-visitantes)
+  let baseline = null;
+  if (readai && !isGuest) {
     try {
       const ninetyDaysAgo = Date.now() - 90 * 24 * 60 * 60 * 1000;
+      // Primeiro: 50 reuniões só com métricas (cálculo de médias)
       const meetings = await readai.listAllMeetings({
         startGte: ninetyDaysAgo,
         expand: ['metrics'],
         maxPages: 5,
       });
       const withMetrics = meetings.filter(m => m.metrics && m.metrics.read_score != null);
-      const avg = (key) => {
+      const agg = (key) => {
         const vals = withMetrics.map(m => m.metrics[key]).filter(Number.isFinite);
         if (!vals.length) return null;
-        return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length * 10) / 10;
+        const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+        const sorted = [...vals].sort((a, b) => a - b);
+        return {
+          mean: Math.round(mean * 10) / 10,
+          median: Math.round(sorted[Math.floor(sorted.length/2)] * 10) / 10,
+          min: Math.round(Math.min(...vals) * 10) / 10,
+          max: Math.round(Math.max(...vals) * 10) / 10,
+          stdev: Math.round(Math.sqrt(vals.reduce((s,v) => s+(v-mean)**2, 0)/vals.length) * 10) / 10,
+          n: vals.length,
+        };
       };
-      history = {
+
+      // Segundo: top 6 reuniões mais recentes COM dados ricos
+      const deepExpand = ['metrics', 'summary', 'action_items', 'key_questions', 'topics'];
+      const deepMeetings = [];
+      for (const m of meetings.slice(0, 6)) {
+        try {
+          const detail = await readai.getMeeting(m.id, deepExpand);
+          deepMeetings.push({
+            title: detail.title,
+            platform: detail.platform,
+            duration_min: detail.end_time_ms && detail.start_time_ms
+              ? Math.round((detail.end_time_ms - detail.start_time_ms) / 60000) : null,
+            participants_count: (detail.participants || []).length,
+            attended_count: (detail.participants || []).filter(p => p.attended).length,
+            folders: detail.folders || [],
+            metrics: detail.metrics || null,
+            summary: detail.summary?.slice(0, 500) || null,
+            action_items: detail.action_items?.slice(0, 5) || null,
+            key_questions: detail.key_questions?.slice(0, 5) || null,
+            topics: detail.topics?.slice(0, 8) || null,
+          });
+        } catch (e) {
+          // se a reunião falhar, continua com as outras
+          console.warn('[v2/report] deep fetch fail for', m.id, e.message);
+        }
+      }
+
+      // Patterns
+      const allTopics = deepMeetings.flatMap(m => Array.isArray(m.topics) ? m.topics.map(t => typeof t === 'string' ? t : t.name || t.title || '') : []).filter(Boolean);
+      const topicFreq = {};
+      for (const t of allTopics) topicFreq[t] = (topicFreq[t] || 0) + 1;
+      const recurringTopics = Object.entries(topicFreq).sort((a, b) => b[1] - a[1]).slice(0, 6);
+
+      baseline = {
+        window_days: 90,
         meeting_count: meetings.length,
         meetings_with_metrics: withMetrics.length,
-        window_days: 90,
-        read_score_avg: avg('read_score'),
-        sentiment_avg: avg('sentiment'),
-        engagement_avg: avg('engagement'),
-        recent_titles: meetings.slice(0, 8).map(m => m.title).filter(Boolean),
+        read_score: agg('read_score'),
+        sentiment: agg('sentiment'),
+        engagement: agg('engagement'),
         platforms: [...new Set(meetings.map(m => m.platform).filter(Boolean))],
+        folders: [...new Set(meetings.flatMap(m => m.folders || []))].slice(0, 8),
+        deep_recent: deepMeetings,
+        recurring_topics: recurringTopics.map(([name, count]) => ({ name, count })),
       };
     } catch (e) {
-      console.warn('[v2/report] readai history fail:', e.message);
-      history = { error: e.message };
+      console.warn('[v2/report] readai baseline fail:', e.message);
+      baseline = { error: e.message };
     }
   }
 
+  // Enriquecer payload da sessão com derived metrics ANTES de passar pro Claude
+  const enriched = enrichSessionPayload(payload);
+
   try {
-    const md = await callClaudeV2(payload, history);
-    return res.json({ markdown: md, source: 'claude-v2', model: ANTHROPIC_MODEL, history_used: Boolean(history && !history.error) });
+    const md = await callClaudeV2(enriched, baseline, isGuest);
+    return res.json({
+      markdown: md,
+      source: 'claude-v2',
+      model: ANTHROPIC_MODEL,
+      baseline_used: Boolean(baseline && !baseline.error),
+      is_guest: isGuest,
+      deep_meetings_count: baseline?.deep_recent?.length || 0,
+    });
   } catch (e) {
     console.error('[v2/report] Claude err:', e.message);
     return res.json({
@@ -365,7 +448,135 @@ app.post('/v2/report', async (req, res) => {
   }
 });
 
-async function callClaudeV2(payload, history) {
+// ============= Enrich session payload — extrai TODAS as variáveis derivadas =============
+function enrichSessionPayload(p) {
+  const out = { ...p };
+
+  // Top signals com média de probabilidade
+  if (p.top_signals && p.per_question) {
+    const probMap = new Map();
+    const probWeights = { low: 1, medium: 2, high: 3 };
+    for (const q of (p.per_question || [])) {
+      for (const sig of (q.signals || [])) {
+        const probs = sig.probabilities || [];
+        const sum = probs.reduce((s, x) => s + (probWeights[x] || 0), 0);
+        if (!probMap.has(sig.type)) probMap.set(sig.type, { sum: 0, n: 0 });
+        const e = probMap.get(sig.type);
+        e.sum += sum;
+        e.n += probs.length;
+      }
+    }
+    out.top_signals = p.top_signals.map(s => {
+      const m = probMap.get(s.type);
+      return {
+        ...s,
+        avg_intensity: m && m.n ? Math.round(m.sum / m.n * 100) / 100 : null,  // 1=low 2=med 3=high
+      };
+    });
+  }
+
+  // Padrão por pergunta
+  if (p.per_question) {
+    out.questions_answered = p.per_question.filter(q => q.really_answered).length;
+    out.avg_audio_activity = Math.round(
+      p.per_question.reduce((s, q) => s + (q.audio_activity || 0), 0) / Math.max(1, p.per_question.length) * 100
+    ) / 100;
+    // Pergunta mais silenciosa, mais falada, com mais sinais
+    const sorted = [...p.per_question].sort((a, b) => (a.audio_activity || 0) - (b.audio_activity || 0));
+    out.most_silent_question = sorted[0]?.idx;
+    out.most_talkative_question = sorted[sorted.length - 1]?.idx;
+    const bySignalsCount = [...p.per_question].sort((a, b) => (b.signals?.length || 0) - (a.signals?.length || 0));
+    out.most_reactive_question = bySignalsCount[0]?.idx;
+  }
+
+  // Tempo do dia (sutil, mas útil)
+  out.time_of_day = new Date().toISOString();
+  out.hour_local = new Date().getHours();
+
+  return out;
+}
+
+async function callClaudeV2(payload, baseline, isGuest) {
+  const systemBase = `Você é um analista comportamental que produz perfilamentos densos, surpreendentes e respeitosos de uma sessão de 2 minutos. A pessoa respondeu 5 perguntas provocativas com a câmera ligada — sinais sociais foram detectados pela Interhuman AI em tempo real.
+
+Você recebe um JSON com TODAS as variáveis disponíveis da sessão:
+- duration_s, hour_local, time_of_day
+- cqi (quality_index 0-100 + 5 dimensões: clarity, authority, energy, rapport, learning)
+- engagement_pct (% engaged/neutral/disengaged ao longo da sessão)
+- top_signals (até 5, com count e avg_intensity 1-3)
+- per_question[5]: cada uma com question text, duration_s, audio_activity 0-1,
+  really_answered, signals[], engagement_changes[]
+- questions_answered, avg_audio_activity, most_silent_question, most_talkative_question,
+  most_reactive_question — derivados pra você usar diretamente
+- raw_signal_count`;
+
+  const systemWithBaseline = `${systemBase}
+
+Você também recebe uma LINHA DE BASE (baseline) do Read.AI com as últimas reuniões reais da pessoa nos últimos 90 dias:
+- meeting_count, meetings_with_metrics
+- read_score (mean/median/min/max/stdev/n), sentiment (idem), engagement (idem)
+- platforms usadas, folders (tipos de reunião recorrentes)
+- deep_recent (top 6 reuniões com summary, action_items, key_questions, topics, participants, duration)
+- recurring_topics (top tópicos com frequência)
+
+Use a BASELINE pra CONTEXTUALIZAR profundamente. Compare CQI hoje × read_score histórico, engagement hoje × engagement histórico, etc. Cite tópicos recorrentes quando o sinal da sessão (ex: hesitation) puder estar ligado a um tema que aparece nas reuniões recentes. Use action_items pra inferir se a pessoa é executora vs idealizadora. Use key_questions pra inferir estilo cognitivo.`;
+
+  const systemGuest = `${systemBase}
+
+Esta sessão é de um VISITANTE (sem histórico Read.AI). Concentre-se totalmente nos dados da sessão atual — não invente comparações inexistentes. Use as variáveis derivadas (most_silent_question, most_talkative_question, most_reactive_question, avg_audio_activity) pra ancorar observações específicas.`;
+
+  const system = `${(isGuest ? systemGuest : systemWithBaseline)}
+
+REGRAS DE OUTPUT:
+- Markdown puro (sem code fences)
+- ~400-500 palavras
+- Português BR, "você"
+- Seções (ordem rígida):
+
+# 🧠 [ARQUÉTIPO em 4-6 palavras provocativas]
+
+[uma linha de hard data: CQI + sinais top + tempo falado]
+
+${!isGuest ? `[QUANDO BASELINE existe] **🔭 Sua linha de base × hoje:** uma frase comparando concretamente 2-3 números (CQI hoje vs read_score histórico, engagement hoje vs hist, etc).` : '[Sem baseline — pule esta seção, vá direto pra próxima]'}
+
+## O que você DISSE × O que vimos
+3-5 contrastes específicos pergunta-a-pergunta. Sinalize a pergunta mais silenciosa (most_silent_question) e a mais reativa (most_reactive_question):
+- **"[pergunta resumida]"** → DISSE: [inferência sobre fala + audio_activity] · MOSTROU: [sinal dominante + avg_intensity + interpretação]
+
+## Sua fragilidade oculta
+1 parágrafo (3-4 frases) sobre o sinal recorrente que apareceu sem você perceber. ${!isGuest ? 'Se a BASELINE mostrar padrão diferente (ex: sentiment hoje muito abaixo), mencione. Se algum topic recurring der pista do gatilho, conecte.' : 'Foque na análise da sessão; cite a(s) pergunta(s) em que apareceu.'}
+
+## Seu superpoder de comunicação
+1 parágrafo sobre a dimensão CQI mais alta. ${!isGuest ? 'Se a BASELINE confirma (ex: read_score histórico alto e energy alta hoje), reforce com dados concretos.' : 'Use ancoragem em dados da sessão (qual pergunta acendeu mais).'}
+
+## O conselho que você não pediu
+Uma frase acionável específica. ${!isGuest ? 'Pode referenciar topics recurring ou folders frequentes.' : ''}
+
+TOM: surpreender com insights NÃO-óbvios, jamais ofender, ser específico (use números). Não enrole, não use clichês motivacionais.`;
+
+  const user = `## SESSÃO ATUAL (todas as variáveis)
+\`\`\`json
+${JSON.stringify(payload, null, 2)}
+\`\`\`
+
+${!isGuest ? `## SUA LINHA DE BASE (Read.AI · 90 dias)
+\`\`\`json
+${JSON.stringify(baseline, null, 2)}
+\`\`\`` : '## MODO VISITANTE — sem baseline'}
+
+Produz o perfilamento agora.`;
+
+  const resp = await anthropic.messages.create({
+    model: ANTHROPIC_MODEL,
+    max_tokens: 2400,
+    temperature: 0.7,
+    system,
+    messages: [{ role: 'user', content: user }],
+  });
+  return (resp.content.find(c => c.type === 'text')?.text || '').trim();
+}
+
+async function _legacyCallClaudeV2(payload, history) {
   const system = `Você é um analista comportamental que produz perfilamentos densos, surpreendentes e respeitosos a partir de uma sessão de 2 minutos onde a pessoa respondeu 5 perguntas provocativas com a câmera ligada.
 
 Você recebe DOIS conjuntos de dados:

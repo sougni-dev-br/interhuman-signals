@@ -879,7 +879,9 @@ function escapeHtml(s) {
   const userEmail = document.getElementById('userEmail');
   const logoutBtn = document.getElementById('logoutBtn');
   if (!cfg.userEmail || !userPill) return;
-  userEmail.textContent = cfg.userEmail;
+  const isGuest = cfg.userRole === 'guest';
+  userEmail.textContent = isGuest ? '🎭 visitante' : cfg.userEmail;
+  if (isGuest) userPill.classList.add('user-pill-guest');
   userPill.hidden = false;
   logoutBtn.addEventListener('click', () => {
     localStorage.removeItem('ego_auth');

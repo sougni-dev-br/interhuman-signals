@@ -273,6 +273,65 @@
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
+    /* ====== Divider "ou" ====== */
+    .divider {
+      display: flex; align-items: center; gap: 12px;
+      margin: 18px 0 14px;
+      color: var(--text-xlo);
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .14em;
+    }
+    .divider::before, .divider::after {
+      content: ''; flex: 1; height: 1px; background: var(--border);
+    }
+
+    /* ====== Guest button ====== */
+    .guest-btn {
+      width: 100%;
+      background: white;
+      border: 1.5px solid var(--border-2);
+      border-radius: 999px;
+      padding: 12px 18px;
+      cursor: pointer;
+      font-family: inherit;
+      display: flex; flex-direction: column; align-items: center; gap: 2px;
+      transition: all .15s;
+      color: var(--text);
+    }
+    .guest-btn:hover:not(:disabled) {
+      border-color: var(--brand-2);
+      background: var(--surface-2);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(60,151,159,.15);
+    }
+    .guest-btn span:first-child {
+      font-weight: 600;
+      font-size: 13px;
+      color: var(--text);
+    }
+    .guest-btn .guest-hint {
+      font-size: 10px;
+      color: var(--text-lo);
+      font-weight: 400;
+      letter-spacing: .02em;
+    }
+    .guest-btn:disabled { opacity: .6; cursor: not-allowed; }
+    .guest-btn.loading span { color: transparent; }
+    .guest-btn.loading {
+      position: relative;
+    }
+    .guest-btn.loading::after {
+      content: ''; position: absolute;
+      top: 50%; left: 50%; width: 18px; height: 18px;
+      margin: -9px 0 0 -9px;
+      border-radius: 50%;
+      border: 2px solid rgba(60,151,159,.25);
+      border-top-color: var(--brand);
+      animation: spin 1s linear infinite;
+    }
+
     /* ====== Footer link ====== */
     .signup-row {
       margin-top: 22px;
@@ -531,6 +590,13 @@
 
         <button type="submit" class="submit-btn" id="submitBtn">acessar</button>
 
+        <div class="divider"><span>ou</span></div>
+
+        <button type="button" class="guest-btn" id="guestBtn">
+          <span>entrar como visitante</span>
+          <span class="guest-hint">sessão de demonstração · sem comparativo de linha de base</span>
+        </button>
+
         <div class="signup-row">
           ainda não tem acesso? <a href="mailto:rafael@sougni.com?subject=ego%20signals%20%E2%80%94%20solicitar%20acesso">solicitar acesso</a>
         </div>
@@ -577,7 +643,8 @@
 
     function authEndpoint() {
       const cfg = window.IH_CONFIG || {};
-      if (cfg.wsUrl) {
+      const isDevLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+      if (cfg.wsUrl && !isDevLocal) {
         return cfg.wsUrl.replace(/^wss?:\/\//, location.protocol + '//').replace(/\/ws$/, '/auth');
       }
       return `${location.protocol}//${location.host}/auth`;
@@ -610,6 +677,7 @@
           token: data.token,
           email: data.email,
           exp: data.exp,
+          role: data.role || 'user',
         }));
         // success → redirect to dashboard
         location.replace('/');
@@ -617,6 +685,39 @@
         showError('falha na conexão: ' + err.message);
         btn.classList.remove('loading');
         btn.disabled = false;
+      }
+    });
+
+    // Guest login
+    const guestBtn = document.getElementById('guestBtn');
+    guestBtn.addEventListener('click', async () => {
+      alertEl.classList.remove('show');
+      guestBtn.classList.add('loading');
+      guestBtn.disabled = true;
+      try {
+        const r = await fetch(authEndpoint(), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ guest: true }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          showError(data.error || `erro ${r.status}`);
+          guestBtn.classList.remove('loading');
+          guestBtn.disabled = false;
+          return;
+        }
+        localStorage.setItem('ego_auth', JSON.stringify({
+          token: data.token,
+          email: data.email,
+          exp: data.exp,
+          role: 'guest',
+        }));
+        location.replace('/');
+      } catch (err) {
+        showError('falha na conexão: ' + err.message);
+        guestBtn.classList.remove('loading');
+        guestBtn.disabled = false;
       }
     });
   </script>

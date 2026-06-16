@@ -139,6 +139,11 @@ a:hover { text-decoration: underline; text-underline-offset: 3px; }
   transition: all .15s;
 }
 .user-logout:hover { background: var(--bad); color: white; }
+.user-pill.user-pill-guest {
+  background: linear-gradient(135deg, rgba(168,85,247,.10), rgba(216,180,254,.18));
+  border-color: #DDD6FE;
+}
+.user-pill.user-pill-guest .user-email { color: #6D28D9; font-weight: 600; }
 @media (max-width: 720px) { .user-email { display: none; } }
 .badge {
   display: inline-flex; align-items: center; gap: 8px;
@@ -1166,6 +1171,15 @@ body[data-phase="connecting"]  .grid { opacity: .35; pointer-events: none; }
   border-left: 3px solid var(--brand);
   border-radius: 4px;
 }
+.bench-note.guest-note {
+  background: linear-gradient(135deg, rgba(216, 180, 254, .15), rgba(167, 139, 250, .08));
+  border-left-color: #A855F7;
+  color: var(--text-md);
+  font-size: 12px;
+  padding: 12px 14px;
+}
+.bench-strip.guest .bench-icon::after { content: '· visitante'; font-size: 11px; opacity: .7; }
+.bench-strip.guest { border-color: #DDD6FE; }
 
 /* Comparações live vs histórico nas dimensões CQI / cards principais */
 .dim .bench-marker {
