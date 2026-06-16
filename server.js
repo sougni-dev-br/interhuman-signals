@@ -12,7 +12,6 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import Anthropic from '@anthropic-ai/sdk';
-import { ReadAIClient } from './read-ai-client.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -24,19 +23,6 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
   .split(',').map(s => s.trim()).filter(Boolean);
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
-
-// Read.AI v2
-const READ_AI_CLIENT_ID = process.env.READ_AI_CLIENT_ID || '';
-const READ_AI_CLIENT_SECRET = process.env.READ_AI_CLIENT_SECRET || '';
-const READ_AI_REFRESH_TOKEN = process.env.READ_AI_REFRESH_TOKEN || '';
-const readai = (READ_AI_CLIENT_ID && READ_AI_CLIENT_SECRET && READ_AI_REFRESH_TOKEN)
-  ? new ReadAIClient({
-      clientId: READ_AI_CLIENT_ID,
-      clientSecret: READ_AI_CLIENT_SECRET,
-      initialRefreshToken: READ_AI_REFRESH_TOKEN,
-      persistPath: path.join(__dirname, '.read-ai-state.json'),
-    })
-  : null;
 
 // Auth — USERS é uma string "email1:senha1,email2:senha2" no env do Render.
 // TOKEN_SECRET assina os tokens HMAC; default deriva do PASSCODE pra não ter
@@ -102,8 +88,7 @@ app.get('/health', (_req, res) => res.json({
   authEnabled: USERS.size > 0,
   userCount: USERS.size,
   guestEnabled: true,
-  readAiEnabled: Boolean(readai),
-  v2Endpoints: readai ? ['/v2/benchmarks', '/v2/report'] : [],
+  v2Endpoints: ['/v2/report'],
 }));
 
 // ============= /auth — login com email + senha =============
@@ -250,82 +235,7 @@ Produz o perfilamento agora, seguindo a estrutura exata.`;
   return text.trim();
 }
 
-// ============= /v2/benchmarks — médias históricas Read.AI =============
-// Frontend chama no load do dashboard pra mostrar "sua média histórica" ao
-// lado dos valores live. Cacheia em memória por 5 minutos por usuário.
-const benchmarkCache = new Map();
-const BENCHMARK_TTL_MS = 5 * 60 * 1000;
-
-app.options('/v2/benchmarks', (req, res) => {
-  res.set({
-    'Access-Control-Allow-Origin': req.headers.origin || '*',
-    'Access-Control-Allow-Methods': 'GET',
-    'Access-Control-Allow-Headers': 'Authorization',
-  });
-  res.status(204).end();
-});
-app.get('/v2/benchmarks', async (req, res) => {
-  if (!checkOrigin(req)) return res.status(403).json({ error: 'origin not allowed' });
-  res.set('Access-Control-Allow-Origin', req.headers.origin || '*');
-  // Modo visitante: não tem baseline Read.AI próprio
-  if (getTokenRole(req) === 'guest') {
-    return res.json({ available: false, reason: 'guest_mode', is_guest: true });
-  }
-  if (!readai) return res.json({ available: false, reason: 'READ_AI not configured' });
-
-  const cacheKey = req.headers.authorization || 'anon';
-  const cached = benchmarkCache.get(cacheKey);
-  if (cached && cached.expiresAt > Date.now()) {
-    return res.json({ ...cached.data, cached: true });
-  }
-
-  try {
-    const ninetyDaysAgo = Date.now() - 90 * 24 * 60 * 60 * 1000;
-    const meetings = await readai.listAllMeetings({
-      startGte: ninetyDaysAgo,
-      expand: ['metrics'],
-      maxPages: 5,  // 50 reuniões max
-    });
-
-    const withMetrics = meetings.filter(m => m.metrics && m.metrics.read_score != null);
-    const n = withMetrics.length;
-    const stats = (key) => {
-      const vals = withMetrics.map(m => m.metrics[key]).filter(v => Number.isFinite(v));
-      if (!vals.length) return null;
-      const sum = vals.reduce((a, b) => a + b, 0);
-      const mean = sum / vals.length;
-      const sorted = vals.slice().sort((a, b) => a - b);
-      const median = sorted[Math.floor(sorted.length / 2)];
-      return {
-        mean: Math.round(mean * 100) / 100,
-        median: Math.round(median * 100) / 100,
-        min: Math.round(Math.min(...vals) * 100) / 100,
-        max: Math.round(Math.max(...vals) * 100) / 100,
-        n: vals.length,
-      };
-    };
-
-    const data = {
-      available: true,
-      window_days: 90,
-      meeting_count: meetings.length,
-      meetings_with_metrics: n,
-      benchmarks: {
-        read_score: stats('read_score'),
-        sentiment: stats('sentiment'),
-        engagement: stats('engagement'),
-      },
-      recent_titles: meetings.slice(0, 5).map(m => ({ title: m.title, start: m.start_time_ms })),
-    };
-    benchmarkCache.set(cacheKey, { data, expiresAt: Date.now() + BENCHMARK_TTL_MS });
-    res.json(data);
-  } catch (e) {
-    console.error('[v2/benchmarks]', e.message);
-    res.json({ available: false, error: e.message });
-  }
-});
-
-// ============= /v2/report — perfilamento Claude enriquecido com baseline Read.AI (90d) =============
+// ============= /v2/report — perfilamento Claude da sessão atual =============
 app.options('/v2/report', (req, res) => {
   res.set({
     'Access-Control-Allow-Origin': req.headers.origin || '*',
@@ -339,100 +249,19 @@ app.post('/v2/report', async (req, res) => {
   res.set('Access-Control-Allow-Origin', req.headers.origin || '*');
 
   const payload = req.body || {};
-  const isGuest = getTokenRole(req) === 'guest';
   if (!anthropic) {
     return res.json({ markdown: ruleBasedReport(payload), source: 'fallback-no-ai' });
-  }
-
-  // Histórico Read.AI — RICO (apenas pra users não-visitantes)
-  let baseline = null;
-  if (readai && !isGuest) {
-    try {
-      const ninetyDaysAgo = Date.now() - 90 * 24 * 60 * 60 * 1000;
-      // Primeiro: 50 reuniões só com métricas (cálculo de médias)
-      const meetings = await readai.listAllMeetings({
-        startGte: ninetyDaysAgo,
-        expand: ['metrics'],
-        maxPages: 5,
-      });
-      const withMetrics = meetings.filter(m => m.metrics && m.metrics.read_score != null);
-      const agg = (key) => {
-        const vals = withMetrics.map(m => m.metrics[key]).filter(Number.isFinite);
-        if (!vals.length) return null;
-        const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
-        const sorted = [...vals].sort((a, b) => a - b);
-        return {
-          mean: Math.round(mean * 10) / 10,
-          median: Math.round(sorted[Math.floor(sorted.length/2)] * 10) / 10,
-          min: Math.round(Math.min(...vals) * 10) / 10,
-          max: Math.round(Math.max(...vals) * 10) / 10,
-          stdev: Math.round(Math.sqrt(vals.reduce((s,v) => s+(v-mean)**2, 0)/vals.length) * 10) / 10,
-          n: vals.length,
-        };
-      };
-
-      // Segundo: top 6 reuniões mais recentes COM dados ricos
-      const deepExpand = ['metrics', 'summary', 'action_items', 'key_questions', 'topics'];
-      const deepMeetings = [];
-      for (const m of meetings.slice(0, 6)) {
-        try {
-          const detail = await readai.getMeeting(m.id, deepExpand);
-          deepMeetings.push({
-            title: detail.title,
-            platform: detail.platform,
-            duration_min: detail.end_time_ms && detail.start_time_ms
-              ? Math.round((detail.end_time_ms - detail.start_time_ms) / 60000) : null,
-            participants_count: (detail.participants || []).length,
-            attended_count: (detail.participants || []).filter(p => p.attended).length,
-            folders: detail.folders || [],
-            metrics: detail.metrics || null,
-            summary: detail.summary?.slice(0, 500) || null,
-            action_items: detail.action_items?.slice(0, 5) || null,
-            key_questions: detail.key_questions?.slice(0, 5) || null,
-            topics: detail.topics?.slice(0, 8) || null,
-          });
-        } catch (e) {
-          // se a reunião falhar, continua com as outras
-          console.warn('[v2/report] deep fetch fail for', m.id, e.message);
-        }
-      }
-
-      // Patterns
-      const allTopics = deepMeetings.flatMap(m => Array.isArray(m.topics) ? m.topics.map(t => typeof t === 'string' ? t : t.name || t.title || '') : []).filter(Boolean);
-      const topicFreq = {};
-      for (const t of allTopics) topicFreq[t] = (topicFreq[t] || 0) + 1;
-      const recurringTopics = Object.entries(topicFreq).sort((a, b) => b[1] - a[1]).slice(0, 6);
-
-      baseline = {
-        window_days: 90,
-        meeting_count: meetings.length,
-        meetings_with_metrics: withMetrics.length,
-        read_score: agg('read_score'),
-        sentiment: agg('sentiment'),
-        engagement: agg('engagement'),
-        platforms: [...new Set(meetings.map(m => m.platform).filter(Boolean))],
-        folders: [...new Set(meetings.flatMap(m => m.folders || []))].slice(0, 8),
-        deep_recent: deepMeetings,
-        recurring_topics: recurringTopics.map(([name, count]) => ({ name, count })),
-      };
-    } catch (e) {
-      console.warn('[v2/report] readai baseline fail:', e.message);
-      baseline = { error: e.message };
-    }
   }
 
   // Enriquecer payload da sessão com derived metrics ANTES de passar pro Claude
   const enriched = enrichSessionPayload(payload);
 
   try {
-    const md = await callClaudeV2(enriched, baseline, isGuest);
+    const md = await callClaudeV2(enriched);
     return res.json({
       markdown: md,
       source: 'claude-v2',
       model: ANTHROPIC_MODEL,
-      baseline_used: Boolean(baseline && !baseline.error),
-      is_guest: isGuest,
-      deep_meetings_count: baseline?.deep_recent?.length || 0,
     });
   } catch (e) {
     console.error('[v2/report] Claude err:', e.message);
@@ -492,8 +321,8 @@ function enrichSessionPayload(p) {
   return out;
 }
 
-async function callClaudeV2(payload, baseline, isGuest) {
-  const systemBase = `Você é um analista comportamental que produz perfilamentos densos, surpreendentes e respeitosos de uma sessão de 2 minutos. A pessoa respondeu 5 perguntas provocativas com a câmera ligada — sinais sociais foram detectados pela Interhuman AI em tempo real.
+async function callClaudeV2(payload) {
+  const system = `Você é um analista comportamental que produz perfilamentos densos, surpreendentes e respeitosos de uma sessão de 2 minutos. A pessoa respondeu 5 perguntas provocativas com a câmera ligada — sinais sociais foram detectados pela Interhuman AI em tempo real.
 
 Você recebe um JSON com TODAS as variáveis disponíveis da sessão:
 - duration_s, hour_local, time_of_day
@@ -504,24 +333,9 @@ Você recebe um JSON com TODAS as variáveis disponíveis da sessão:
   really_answered, signals[], engagement_changes[]
 - questions_answered, avg_audio_activity, most_silent_question, most_talkative_question,
   most_reactive_question — derivados pra você usar diretamente
-- raw_signal_count`;
+- raw_signal_count
 
-  const systemWithBaseline = `${systemBase}
-
-Você também recebe uma BASELINE (média 90d) do Read.AI com as últimas reuniões reais da pessoa nos últimos 90 dias:
-- meeting_count, meetings_with_metrics
-- read_score (mean/median/min/max/stdev/n), sentiment (idem), engagement (idem)
-- platforms usadas, folders (tipos de reunião recorrentes)
-- deep_recent (top 6 reuniões com summary, action_items, key_questions, topics, participants, duration)
-- recurring_topics (top tópicos com frequência)
-
-Use a BASELINE pra CONTEXTUALIZAR profundamente. Compare CQI hoje × read_score médio, engagement hoje × engagement médio, etc. Cite tópicos recorrentes quando o sinal da sessão (ex: hesitation) puder estar ligado a um tema que aparece nas reuniões recentes. Use action_items pra inferir se a pessoa é executora vs idealizadora. Use key_questions pra inferir estilo cognitivo.`;
-
-  const systemGuest = `${systemBase}
-
-Esta sessão é de um VISITANTE (sem baseline Read.AI). Concentre-se totalmente nos dados da sessão atual — não invente comparações inexistentes. Use as variáveis derivadas (most_silent_question, most_talkative_question, most_reactive_question, avg_audio_activity) pra ancorar observações específicas.`;
-
-  const system = `${(isGuest ? systemGuest : systemWithBaseline)}
+Concentre-se totalmente nos dados da sessão atual — não invente comparações com dados que não existem. Use as variáveis derivadas (most_silent_question, most_talkative_question, most_reactive_question, avg_audio_activity) pra ancorar observações específicas.
 
 REGRAS DE OUTPUT:
 - Markdown puro (sem code fences)
@@ -533,20 +347,18 @@ REGRAS DE OUTPUT:
 
 [uma linha de hard data: CQI + sinais top + tempo falado]
 
-${!isGuest ? `[QUANDO BASELINE existe] **🔭 Sua média 90d × hoje:** uma frase comparando concretamente 2-3 números (CQI hoje vs read_score médio, engagement hoje vs média, etc).` : '[Sem baseline — pule esta seção, vá direto pra próxima]'}
-
 ## O que você DISSE × O que vimos
 3-5 contrastes específicos pergunta-a-pergunta. Sinalize a pergunta mais silenciosa (most_silent_question) e a mais reativa (most_reactive_question):
 - **"[pergunta resumida]"** → DISSE: [inferência sobre fala + audio_activity] · MOSTROU: [sinal dominante + avg_intensity + interpretação]
 
 ## Sua fragilidade oculta
-1 parágrafo (3-4 frases) sobre o sinal recorrente que apareceu sem você perceber. ${!isGuest ? 'Se a BASELINE mostrar padrão diferente (ex: sentiment hoje muito abaixo), mencione. Se algum topic recurring der pista do gatilho, conecte.' : 'Foque na análise da sessão; cite a(s) pergunta(s) em que apareceu.'}
+1 parágrafo (3-4 frases) sobre o sinal recorrente que apareceu sem você perceber. Foque na análise da sessão; cite a(s) pergunta(s) em que apareceu.
 
 ## Seu superpoder de comunicação
-1 parágrafo sobre a dimensão CQI mais alta. ${!isGuest ? 'Se a BASELINE confirma (ex: read_score médio alto e energy alta hoje), reforce com dados concretos.' : 'Use ancoragem em dados da sessão (qual pergunta acendeu mais).'}
+1 parágrafo sobre a dimensão CQI mais alta. Use ancoragem em dados da sessão (qual pergunta acendeu mais).
 
 ## O conselho que você não pediu
-Uma frase acionável específica. ${!isGuest ? 'Pode referenciar topics recurring ou folders frequentes.' : ''}
+Uma frase acionável específica.
 
 TOM: surpreender com insights NÃO-óbvios, jamais ofender, ser específico (use números). Não enrole, não use clichês motivacionais.`;
 
@@ -554,11 +366,6 @@ TOM: surpreender com insights NÃO-óbvios, jamais ofender, ser específico (use
 \`\`\`json
 ${JSON.stringify(payload, null, 2)}
 \`\`\`
-
-${!isGuest ? `## SUA MÉDIA 90d (Read.AI baseline)
-\`\`\`json
-${JSON.stringify(baseline, null, 2)}
-\`\`\`` : '## MODO VISITANTE — sem baseline'}
 
 Produz o perfilamento agora.`;
 

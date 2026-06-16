@@ -69,7 +69,6 @@ const state = {
   engagement: { current: null, history: [] },
   cqi: { overall: null, timeline: [] },
   logEvents: 0,
-  benchmarks: null,   // v2: avg Read.AI history (read_score, sentiment, engagement)
 
   // session quiz state
   session: {
@@ -510,7 +509,6 @@ function v2Endpoint(name) {
   return `${base}/${name}`;
 }
 function reportEndpoint() { return v2Endpoint('v2/report'); }
-function benchmarksEndpoint() { return v2Endpoint('v2/benchmarks'); }
 
 function buildReportPayload() {
   const top = topSignals();
@@ -531,7 +529,6 @@ function buildReportPayload() {
       engagement_changes: b.engagement.map(e => e.state),
     })),
     raw_signal_count: state.history.length,
-    benchmarks_snapshot: state.benchmarks || null,
   };
 }
 
@@ -905,121 +902,6 @@ function escapeHtml(s) {
     logCard.classList.toggle('open');
   });
 })();
-
-// ============= v2 — Benchmark Read.AI (janela 90d) =============
-async function loadBenchmarks() {
-  try {
-    const cfg = window.IH_CONFIG || {};
-    const headers = { Accept: 'application/json' };
-    if (cfg.token) headers['Authorization'] = `Bearer ${cfg.token}`;
-    const r = await fetch(benchmarksEndpoint(), { headers });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const data = await r.json();
-    state.benchmarks = data;
-    renderBenchmarks(data);
-    pushRaw('proxy', 'benchmarks.loaded', {
-      meetings: data.meeting_count,
-      with_metrics: data.meetings_with_metrics,
-      available: data.available,
-    });
-  } catch (e) {
-    pushRaw('error', 'benchmarks.load', { message: e.message });
-  }
-}
-
-function renderBenchmarks(data) {
-  const strip = document.getElementById('benchStrip');
-  if (!strip) return;
-  // Guest OR sem dados → esconde a strip inteira (título, ícone, sub, cards, nota, fundo, borda).
-  // Padding/background/border ficam na <section.bench-strip>, então hidden=true remove tudo de uma vez.
-  // O perfilamento Claude segue funcionando com sinais ao vivo — sem bloco vazio na UI.
-  if (data?.reason === 'guest_mode' || !data || !data.available) {
-    strip.hidden = true;
-    strip.classList.remove('guest');
-    const cards = document.getElementById('benchCards');
-    if (cards) cards.style.display = '';
-    const note = document.getElementById('benchNote');
-    if (note) { note.hidden = true; note.classList.remove('guest-note'); note.innerHTML = ''; }
-    return;
-  }
-  strip.hidden = false;
-  const b = data.benchmarks || {};
-  const fmt = (s) => s == null ? '—' : Math.round(s.mean);
-  const range = (s) => s == null ? '—' : `range ${Math.round(s.min)}-${Math.round(s.max)} · n=${s.n}`;
-  document.getElementById('benchSub').textContent =
-    `${data.meetings_with_metrics}/${data.meeting_count} reuniões com métricas · janela ${data.window_days} dias`;
-  document.getElementById('benchRead').textContent = fmt(b.read_score);
-  document.getElementById('benchReadRange').textContent = range(b.read_score);
-  document.getElementById('benchSent').textContent = fmt(b.sentiment);
-  document.getElementById('benchSentRange').textContent = range(b.sentiment);
-  document.getElementById('benchEng').textContent = fmt(b.engagement);
-  document.getElementById('benchEngRange').textContent = range(b.engagement);
-
-  const note = document.getElementById('benchNote');
-  if (data.recent_titles?.length) {
-    note.textContent = `referência: "${data.recent_titles[0].title}" e mais ${Math.max(0, data.recent_titles.length - 1)} reuniões recentes`;
-    note.hidden = false;
-  }
-
-  // Toggle button
-  const toggle = document.getElementById('benchToggle');
-  if (toggle) {
-    toggle.addEventListener('click', () => {
-      strip.classList.toggle('collapsed');
-      toggle.textContent = strip.classList.contains('collapsed') ? '+' : '−';
-    });
-  }
-}
-
-// Inject "live vs benchmark" pill next to each CQI dimension (engagement only — comparable)
-function annotateLiveVsBenchmark(d) {
-  const b = state.benchmarks;
-  if (!b || !b.available || !b.benchmarks) return;
-  const liveEng = d.overall?.energy != null ? d.overall.energy : null;
-  // best comparable: cqi engagement (live %) vs Read.AI engagement avg (already 0-100)
-  // for now, attach to engagement dim only
-  const histEng = b.benchmarks.engagement?.mean;
-  const dimEl = document.querySelector('.dim[data-dim="energy"]');
-  if (!dimEl || liveEng == null || histEng == null) return;
-  let pill = dimEl.querySelector('.live-vs');
-  if (!pill) {
-    pill = document.createElement('span');
-    pill.className = 'live-vs';
-    dimEl.querySelector('label').appendChild(pill);
-  }
-  const diff = liveEng - histEng;
-  pill.className = 'live-vs ' + (diff > 5 ? 'up' : diff < -5 ? 'down' : 'eq');
-  const arrow = diff > 5 ? '↑' : diff < -5 ? '↓' : '≈';
-  pill.innerHTML = ` ${arrow} <strong>${Math.round(histEng)}</strong> média 90d`;
-}
-
-// Hook annotateLiveVsBenchmark onto the original handleQualityUpdated
-const _origQuality = handleQualityUpdated;
-handleQualityUpdated = function (d) {
-  _origQuality(d);
-  annotateLiveVsBenchmark(d);
-};
-
-// Override showReport to prepend bench comparison banner if data exists
-const _origShowReport = showReport;
-showReport = function (payload, data) {
-  _origShowReport(payload, data);
-  const b = state.benchmarks;
-  if (!b || !b.available) return;
-  const live = payload.cqi?.quality_index;
-  const histR = b.benchmarks?.read_score?.mean;
-  if (live == null || histR == null) return;
-  const md = document.getElementById('reportMd');
-  if (!md || md.querySelector('.r-bench-banner')) return;
-  const banner = document.createElement('div');
-  banner.className = 'r-bench-banner';
-  const diff = Math.round(live) - Math.round(histR);
-  const arrow = diff > 5 ? 'acima' : diff < -5 ? 'abaixo' : 'no mesmo nível';
-  banner.innerHTML = `Sua CQI hoje (<strong>${Math.round(live)}</strong>) está <strong>${arrow}</strong> da sua média dos últimos 90 dias (<strong>${Math.round(histR)}</strong> · n=${b.benchmarks.read_score.n})`;
-  md.prepend(banner);
-};
-
-loadBenchmarks();
 
 // Initial UI hint
 pushRaw('proxy', 'pronto', { hint: 'v2 · clique em "Iniciar sessão" para iniciar o perfilamento' });
