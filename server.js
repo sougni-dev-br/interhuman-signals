@@ -267,7 +267,7 @@ app.options('/v2/benchmarks', (req, res) => {
 app.get('/v2/benchmarks', async (req, res) => {
   if (!checkOrigin(req)) return res.status(403).json({ error: 'origin not allowed' });
   res.set('Access-Control-Allow-Origin', req.headers.origin || '*');
-  // Modo visitante: não tem histórico Read.AI próprio
+  // Modo visitante: não tem baseline Read.AI próprio
   if (getTokenRole(req) === 'guest') {
     return res.json({ available: false, reason: 'guest_mode', is_guest: true });
   }
@@ -325,7 +325,7 @@ app.get('/v2/benchmarks', async (req, res) => {
   }
 });
 
-// ============= /v2/report — perfilamento Claude enriquecido com histórico Read.AI =============
+// ============= /v2/report — perfilamento Claude enriquecido com baseline Read.AI (90d) =============
 app.options('/v2/report', (req, res) => {
   res.set({
     'Access-Control-Allow-Origin': req.headers.origin || '*',
@@ -508,18 +508,18 @@ Você recebe um JSON com TODAS as variáveis disponíveis da sessão:
 
   const systemWithBaseline = `${systemBase}
 
-Você também recebe uma LINHA DE BASE (baseline) do Read.AI com as últimas reuniões reais da pessoa nos últimos 90 dias:
+Você também recebe uma BASELINE (média 90d) do Read.AI com as últimas reuniões reais da pessoa nos últimos 90 dias:
 - meeting_count, meetings_with_metrics
 - read_score (mean/median/min/max/stdev/n), sentiment (idem), engagement (idem)
 - platforms usadas, folders (tipos de reunião recorrentes)
 - deep_recent (top 6 reuniões com summary, action_items, key_questions, topics, participants, duration)
 - recurring_topics (top tópicos com frequência)
 
-Use a BASELINE pra CONTEXTUALIZAR profundamente. Compare CQI hoje × read_score histórico, engagement hoje × engagement histórico, etc. Cite tópicos recorrentes quando o sinal da sessão (ex: hesitation) puder estar ligado a um tema que aparece nas reuniões recentes. Use action_items pra inferir se a pessoa é executora vs idealizadora. Use key_questions pra inferir estilo cognitivo.`;
+Use a BASELINE pra CONTEXTUALIZAR profundamente. Compare CQI hoje × read_score médio, engagement hoje × engagement médio, etc. Cite tópicos recorrentes quando o sinal da sessão (ex: hesitation) puder estar ligado a um tema que aparece nas reuniões recentes. Use action_items pra inferir se a pessoa é executora vs idealizadora. Use key_questions pra inferir estilo cognitivo.`;
 
   const systemGuest = `${systemBase}
 
-Esta sessão é de um VISITANTE (sem histórico Read.AI). Concentre-se totalmente nos dados da sessão atual — não invente comparações inexistentes. Use as variáveis derivadas (most_silent_question, most_talkative_question, most_reactive_question, avg_audio_activity) pra ancorar observações específicas.`;
+Esta sessão é de um VISITANTE (sem baseline Read.AI). Concentre-se totalmente nos dados da sessão atual — não invente comparações inexistentes. Use as variáveis derivadas (most_silent_question, most_talkative_question, most_reactive_question, avg_audio_activity) pra ancorar observações específicas.`;
 
   const system = `${(isGuest ? systemGuest : systemWithBaseline)}
 
@@ -533,7 +533,7 @@ REGRAS DE OUTPUT:
 
 [uma linha de hard data: CQI + sinais top + tempo falado]
 
-${!isGuest ? `[QUANDO BASELINE existe] **🔭 Sua linha de base × hoje:** uma frase comparando concretamente 2-3 números (CQI hoje vs read_score histórico, engagement hoje vs hist, etc).` : '[Sem baseline — pule esta seção, vá direto pra próxima]'}
+${!isGuest ? `[QUANDO BASELINE existe] **🔭 Sua média 90d × hoje:** uma frase comparando concretamente 2-3 números (CQI hoje vs read_score médio, engagement hoje vs média, etc).` : '[Sem baseline — pule esta seção, vá direto pra próxima]'}
 
 ## O que você DISSE × O que vimos
 3-5 contrastes específicos pergunta-a-pergunta. Sinalize a pergunta mais silenciosa (most_silent_question) e a mais reativa (most_reactive_question):
@@ -543,7 +543,7 @@ ${!isGuest ? `[QUANDO BASELINE existe] **🔭 Sua linha de base × hoje:** uma f
 1 parágrafo (3-4 frases) sobre o sinal recorrente que apareceu sem você perceber. ${!isGuest ? 'Se a BASELINE mostrar padrão diferente (ex: sentiment hoje muito abaixo), mencione. Se algum topic recurring der pista do gatilho, conecte.' : 'Foque na análise da sessão; cite a(s) pergunta(s) em que apareceu.'}
 
 ## Seu superpoder de comunicação
-1 parágrafo sobre a dimensão CQI mais alta. ${!isGuest ? 'Se a BASELINE confirma (ex: read_score histórico alto e energy alta hoje), reforce com dados concretos.' : 'Use ancoragem em dados da sessão (qual pergunta acendeu mais).'}
+1 parágrafo sobre a dimensão CQI mais alta. ${!isGuest ? 'Se a BASELINE confirma (ex: read_score médio alto e energy alta hoje), reforce com dados concretos.' : 'Use ancoragem em dados da sessão (qual pergunta acendeu mais).'}
 
 ## O conselho que você não pediu
 Uma frase acionável específica. ${!isGuest ? 'Pode referenciar topics recurring ou folders frequentes.' : ''}
@@ -555,7 +555,7 @@ TOM: surpreender com insights NÃO-óbvios, jamais ofender, ser específico (use
 ${JSON.stringify(payload, null, 2)}
 \`\`\`
 
-${!isGuest ? `## SUA LINHA DE BASE (Read.AI · 90 dias)
+${!isGuest ? `## SUA MÉDIA 90d (Read.AI baseline)
 \`\`\`json
 ${JSON.stringify(baseline, null, 2)}
 \`\`\`` : '## MODO VISITANTE — sem baseline'}
@@ -565,76 +565,6 @@ Produz o perfilamento agora.`;
   const resp = await anthropic.messages.create({
     model: ANTHROPIC_MODEL,
     max_tokens: 2400,
-    temperature: 0.7,
-    system,
-    messages: [{ role: 'user', content: user }],
-  });
-  return (resp.content.find(c => c.type === 'text')?.text || '').trim();
-}
-
-async function _legacyCallClaudeV2(payload, history) {
-  const system = `Você é um analista comportamental que produz perfilamentos densos, surpreendentes e respeitosos a partir de uma sessão de 2 minutos onde a pessoa respondeu 5 perguntas provocativas com a câmera ligada.
-
-Você recebe DOIS conjuntos de dados:
-
-A. SESSÃO AGORA — JSON com:
-- 5 perguntas, tempo falado em cada (audio_activity 0-1)
-- sinais sociais Interhuman detectados (12 tipos: agreement, confidence, confusion, disagreement, disengagement, engagement, frustration, hesitation, interest, skepticism, stress, uncertainty)
-- engagement state ao longo da sessão (% engaged/neutral/disengaged)
-- Conversation Quality Index 0-100 + 5 dimensões (clarity, authority, energy, rapport, learning)
-- top signals da sessão
-
-B. HISTÓRICO DA PESSOA — JSON do Read.AI com:
-- read_score médio das últimas reuniões reais (0-100)
-- sentiment médio (0-100)
-- engagement médio (0-100)
-- títulos recentes (contexto profissional)
-- plataformas usadas
-
-Use o HISTÓRICO pra CONTEXTUALIZAR a sessão. Se não houver histórico (history nulo ou sem dados), produza o perfilamento normal sem mencionar comparações inexistentes.
-
-REGRAS DE OUTPUT:
-- Markdown puro, sem code fences
-- ~350-400 palavras
-- Português BR, "você"
-- Seções (ordem rígida):
-
-# 🧠 [ARQUÉTIPO em 4-6 palavras provocativas]
-
-[uma linha de hard data: CQI + sinais top da sessão]
-
-[QUANDO houver histórico] **🔭 Comparação com sua média (últimas N reuniões reais):** uma linha com a comparação concreta dos 3 números (sentiment hoje vs média, engagement hoje vs média, etc) interpretando se está acima/abaixo.
-
-## O que você DISSE × O que vimos
-3-5 contrastes específicos pergunta-a-pergunta:
-- **"[pergunta resumida]"** → DISSE: [inferência sobre fala] · MOSTROU: [sinal dominante + interpretação]
-
-## Sua fragilidade oculta
-1 parágrafo (3-4 frases) sobre o sinal recorrente que apareceu sem a pessoa perceber. Cite o sinal e em quais perguntas. SE o histórico mostra padrão diferente da sessão (ex: sentiment hoje muito abaixo da média), mencione.
-
-## Seu superpoder de comunicação
-1 parágrafo sobre a dimensão CQI mais alta. SE o histórico Read.AI confirma esse superpoder (ex: read_score histórico alto), reforce com dados.
-
-## O conselho que você não pediu
-Uma frase acionável específica, ligada ao padrão observado. Se for relevante, use referência histórica ("Você consistentemente performa melhor em reuniões de [tipo]").
-
-TOM: surpreender com insights não-óbvios, jamais ofender, ser específico (use números concretos). Não enrole.`;
-
-  const user = `## A. SESSÃO AGORA
-\`\`\`json
-${JSON.stringify(payload, null, 2)}
-\`\`\`
-
-## B. HISTÓRICO READ.AI
-\`\`\`json
-${JSON.stringify(history, null, 2)}
-\`\`\`
-
-Produz o perfilamento seguindo a estrutura exata.`;
-
-  const resp = await anthropic.messages.create({
-    model: ANTHROPIC_MODEL,
-    max_tokens: 1800,
     temperature: 0.7,
     system,
     messages: [{ role: 'user', content: user }],

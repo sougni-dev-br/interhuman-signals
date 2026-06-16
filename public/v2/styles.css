@@ -1181,7 +1181,7 @@ body[data-phase="connecting"]  .grid { opacity: .35; pointer-events: none; }
 .bench-strip.guest .bench-icon::after { content: '· visitante'; font-size: 11px; opacity: .7; }
 .bench-strip.guest { border-color: #DDD6FE; }
 
-/* Comparações live vs histórico nas dimensões CQI / cards principais */
+/* Comparações live vs média 90d nas dimensões CQI / cards principais */
 .dim .bench-marker {
   display: inline-block;
   width: 6px; height: 6px; border-radius: 50%;

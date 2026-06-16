@@ -906,7 +906,7 @@ function escapeHtml(s) {
   });
 })();
 
-// ============= v2 — Benchmark histórico Read.AI =============
+// ============= v2 — Benchmark Read.AI (janela 90d) =============
 async function loadBenchmarks() {
   try {
     const cfg = window.IH_CONFIG || {};
@@ -930,21 +930,16 @@ async function loadBenchmarks() {
 function renderBenchmarks(data) {
   const strip = document.getElementById('benchStrip');
   if (!strip) return;
-  if (data?.reason === 'guest_mode') {
-    strip.hidden = false;
-    strip.classList.add('guest');
-    document.getElementById('benchSub').textContent = 'modo visitante · sem linha de base';
-    // Hide bench cards for guest
-    document.getElementById('benchCards').style.display = 'none';
+  // Guest OR sem dados → esconde a strip inteira (título, ícone, sub, cards, nota, fundo, borda).
+  // Padding/background/border ficam na <section.bench-strip>, então hidden=true remove tudo de uma vez.
+  // O perfilamento Claude segue funcionando com sinais ao vivo — sem bloco vazio na UI.
+  if (data?.reason === 'guest_mode' || !data || !data.available) {
+    strip.hidden = true;
+    strip.classList.remove('guest');
+    const cards = document.getElementById('benchCards');
+    if (cards) cards.style.display = '';
     const note = document.getElementById('benchNote');
-    note.innerHTML = '🎭 <strong>modo visitante</strong> — esta sessão não tem dados Read.AI pra comparar. O perfilamento Claude ainda funciona com seus sinais ao vivo do Interhuman.';
-    note.hidden = false;
-    note.classList.add('guest-note');
-    return;
-  }
-  if (!data || !data.available) {
-    strip.hidden = false;
-    document.getElementById('benchSub').textContent = 'linha de base indisponível (' + (data?.reason || data?.error || 'sem dados') + ')';
+    if (note) { note.hidden = true; note.classList.remove('guest-note'); note.innerHTML = ''; }
     return;
   }
   strip.hidden = false;
@@ -964,10 +959,6 @@ function renderBenchmarks(data) {
   if (data.recent_titles?.length) {
     note.textContent = `referência: "${data.recent_titles[0].title}" e mais ${Math.max(0, data.recent_titles.length - 1)} reuniões recentes`;
     note.hidden = false;
-  } else if (data.reason === 'guest_mode') {
-    note.innerHTML = '🎭 <strong>modo visitante</strong> — esta sessão não tem linha de base pra comparar. O perfilamento ainda funciona com seus sinais ao vivo.';
-    note.hidden = false;
-    note.classList.add('guest-note');
   }
 
   // Toggle button
@@ -999,7 +990,7 @@ function annotateLiveVsBenchmark(d) {
   const diff = liveEng - histEng;
   pill.className = 'live-vs ' + (diff > 5 ? 'up' : diff < -5 ? 'down' : 'eq');
   const arrow = diff > 5 ? '↑' : diff < -5 ? '↓' : '≈';
-  pill.innerHTML = ` ${arrow} <strong>${Math.round(histEng)}</strong> hist`;
+  pill.innerHTML = ` ${arrow} <strong>${Math.round(histEng)}</strong> média 90d`;
 }
 
 // Hook annotateLiveVsBenchmark onto the original handleQualityUpdated
@@ -1024,11 +1015,11 @@ showReport = function (payload, data) {
   banner.className = 'r-bench-banner';
   const diff = Math.round(live) - Math.round(histR);
   const arrow = diff > 5 ? 'acima' : diff < -5 ? 'abaixo' : 'no mesmo nível';
-  banner.innerHTML = `Sua CQI hoje (<strong>${Math.round(live)}</strong>) está <strong>${arrow}</strong> da sua linha de base dos últimos 90 dias (<strong>${Math.round(histR)}</strong> · n=${b.benchmarks.read_score.n})`;
+  banner.innerHTML = `Sua CQI hoje (<strong>${Math.round(live)}</strong>) está <strong>${arrow}</strong> da sua média dos últimos 90 dias (<strong>${Math.round(histR)}</strong> · n=${b.benchmarks.read_score.n})`;
   md.prepend(banner);
 };
 
 loadBenchmarks();
 
 // Initial UI hint
-pushRaw('proxy', 'pronto', { hint: 'v2 · clique em "Iniciar sessão" — sua sessão será comparada com sua linha de base' });
+pushRaw('proxy', 'pronto', { hint: 'v2 · clique em "Iniciar sessão" para iniciar o perfilamento' });
