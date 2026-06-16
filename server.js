@@ -106,10 +106,6 @@ app.get('/health', (_req, res) => res.json({
   v2Endpoints: readai ? ['/v2/benchmarks', '/v2/report'] : [],
 }));
 
-app.options('/upload-payload', (_req, res) => { res.set({ 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Private-Network': 'true' }); res.status(204).end(); });
-app.get('/upload-payload', (_req, res) => { res.set({ 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Private-Network': 'true' }); res.sendFile(path.join(__dirname, 'upload-payload.json')); });
-
-
 // ============= /auth — login com email + senha =============
 app.options('/auth', (req, res) => {
   res.set({
