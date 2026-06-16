@@ -409,6 +409,70 @@
     @media (hover: none) {
       .submit-btn:hover:not(:disabled) { transform: none; }
     }
+
+    /* "Already logged in" banner */
+    .session-banner {
+      position: fixed;
+      top: max(16px, env(safe-area-inset-top));
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 99;
+      background: rgba(255, 255, 255, .95);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(255,255,255,.6);
+      border-radius: 999px;
+      padding: 8px 8px 8px 18px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      box-shadow: 0 12px 30px rgba(0,0,0,.18);
+      font-size: 12px;
+      color: var(--text-md);
+      animation: bannerSlide .4s ease;
+    }
+    @keyframes bannerSlide {
+      from { transform: translate(-50%, -120%); opacity: 0; }
+      to   { transform: translate(-50%, 0); opacity: 1; }
+    }
+    .session-banner strong { color: var(--text); }
+    .session-banner-actions { display: flex; gap: 6px; }
+    .session-btn-primary {
+      background: var(--brand);
+      color: white !important;
+      text-decoration: none;
+      padding: 8px 14px;
+      border-radius: 999px;
+      font-weight: 600;
+      font-size: 11px;
+      transition: background .15s;
+    }
+    .session-btn-primary:hover { background: var(--brand-2); text-decoration: none !important; }
+    .session-btn-ghost {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-lo);
+      padding: 7px 12px;
+      border-radius: 999px;
+      font-family: inherit;
+      font-weight: 500;
+      font-size: 11px;
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .session-btn-ghost:hover { background: var(--surface-2); color: var(--text); }
+
+    @media (max-width: 480px) {
+      .session-banner {
+        flex-direction: column;
+        gap: 8px;
+        padding: 12px 14px;
+        border-radius: 18px;
+        width: calc(100% - 24px);
+        max-width: 360px;
+      }
+      .session-banner-actions { width: 100%; }
+      .session-btn-primary, .session-btn-ghost { flex: 1; text-align: center; }
+    }
   </style>
 </head>
 <body>
@@ -475,11 +539,25 @@
   </div>
 
   <script>
-    // ====== Auto-redirect if already logged in ======
+    // ====== Show "already logged in" banner se já tem sessão (sem auto-redirect) ======
     (function () {
-      const auth = JSON.parse(localStorage.getItem('ego_auth') || 'null');
+      let auth;
+      try { auth = JSON.parse(localStorage.getItem('ego_auth') || 'null'); } catch {}
       if (auth && auth.token && (!auth.exp || Date.now() / 1000 < auth.exp)) {
-        location.replace('/');
+        const banner = document.createElement('div');
+        banner.className = 'session-banner';
+        banner.innerHTML = `
+          <span>logado como <strong>${auth.email}</strong></span>
+          <div class="session-banner-actions">
+            <a href="/" class="session-btn-primary">ir pro painel →</a>
+            <button type="button" class="session-btn-ghost" id="bannerLogout">trocar de usuário</button>
+          </div>
+        `;
+        document.body.appendChild(banner);
+        document.getElementById('bannerLogout').addEventListener('click', () => {
+          localStorage.removeItem('ego_auth');
+          banner.remove();
+        });
       }
     })();
 
