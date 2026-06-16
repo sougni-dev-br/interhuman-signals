@@ -1,12 +1,8 @@
-// Interhuman Signals — Realtime Camera proxy
+// Interhuman Signals — Realtime Camera proxy + perfilamento backend
 //
 // Architecture:
 //   Browser <--ws--> THIS PROXY <--wss--> api.interhuman.ai/v1/stream/analyze
-//
-// The Interhuman API key NEVER reaches the browser. It is loaded from .env and
-// injected by this Node process when opening the upstream WebSocket via the
-// `Authorization: Bearer <key>` header (which browsers cannot set on a WS
-// handshake — that's why we proxy).
+//   Browser ---POST /report---> THIS PROXY ----> Anthropic Claude (perfilamento)
 
 import 'dotenv/config';
 import express from 'express';
@@ -14,6 +10,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
+import Anthropic from '@anthropic-ai/sdk';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -23,21 +20,146 @@ const UPSTREAM_URL = 'wss://api.interhuman.ai/v1/stream/analyze';
 const PASSCODE = process.env.PASSCODE || '';
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
   .split(',').map(s => s.trim()).filter(Boolean);
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
+const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
 
 if (!API_KEY) {
   console.error('[fatal] INTERHUMAN_API_KEY ausente em .env');
   process.exit(1);
 }
 
+const anthropic = ANTHROPIC_API_KEY ? new Anthropic({ apiKey: ANTHROPIC_API_KEY }) : null;
+
 const app = express();
+app.use(express.json({ limit: '512kb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/health', (_req, res) => res.json({
   ok: true,
   upstream: UPSTREAM_URL,
   passcodeRequired: Boolean(PASSCODE),
   originsAllowed: ALLOWED_ORIGINS,
+  aiReportEnabled: Boolean(ANTHROPIC_API_KEY),
+  aiModel: ANTHROPIC_API_KEY ? ANTHROPIC_MODEL : null,
 }));
 
+// ============= /report — gera perfilamento via Claude =============
+function checkOrigin(req) {
+  if (!ALLOWED_ORIGINS.length) return true;
+  return ALLOWED_ORIGINS.includes(req.headers.origin || '');
+}
+
+app.options('/report', (req, res) => {
+  res.set({
+    'Access-Control-Allow-Origin': req.headers.origin || '*',
+    'Access-Control-Allow-Methods': 'POST',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Max-Age': '600',
+  });
+  res.status(204).end();
+});
+
+app.post('/report', async (req, res) => {
+  if (!checkOrigin(req)) {
+    return res.status(403).json({ error: 'origin not allowed' });
+  }
+  res.set('Access-Control-Allow-Origin', req.headers.origin || '*');
+
+  const payload = req.body || {};
+  if (!anthropic) {
+    return res.json({ markdown: ruleBasedReport(payload), source: 'fallback-no-ai' });
+  }
+  try {
+    const md = await callClaude(payload);
+    return res.json({ markdown: md, source: 'claude', model: ANTHROPIC_MODEL });
+  } catch (e) {
+    console.error('[report] Claude err:', e.message);
+    return res.json({
+      markdown: ruleBasedReport(payload),
+      source: 'fallback-error',
+      error: e.message,
+    });
+  }
+});
+
+async function callClaude(payload) {
+  const system = `Você é um analista comportamental que produz perfilamentos curtos, surpreendentes e respeitosos a partir de uma sessão de 2 minutos onde uma pessoa respondeu 5 perguntas provocativas com a câmera ligada.
+
+Você recebe um JSON com:
+- 5 perguntas e quanto tempo a pessoa falou em cada uma (audio_activity: 0-1, % de tempo com voz detectada)
+- sinais sociais detectados pela Interhuman AI em cada pergunta (12 tipos possíveis: agreement, confidence, confusion, disagreement, disengagement, engagement, frustration, hesitation, interest, skepticism, stress, uncertainty)
+- engagement state ao longo da sessão (% engaged/neutral/disengaged)
+- Conversation Quality Index 0-100 + 5 dimensões (clarity, authority, energy, rapport, learning)
+- top signals (sinais que mais apareceram)
+
+REGRAS DE OUTPUT:
+- Markdown puro, sem code fences
+- ~300 palavras máximo
+- Português BR, forma "você"
+- Seções obrigatórias (e ordem):
+
+# 🧠 [ARQUÉTIPO em 4-6 palavras provocativas]
+
+[uma linha de hard data com os números principais]
+
+## O que você DISSE × O que vimos
+Lista de 3 a 5 contrastes específicos pergunta-por-pergunta. Formato exato:
+- **"[pergunta resumida]"** → DISSE: [inferência sobre a fala] · MOSTROU: [sinal dominante + interpretação]
+
+## Sua fragilidade oculta
+Um parágrafo (2-3 frases) sobre o sinal recorrente que apareceu múltiplas vezes sem a pessoa perceber. Cite o sinal específico e em quais perguntas apareceu.
+
+## Seu superpoder de comunicação
+Um parágrafo (2-3 frases) sobre a dimensão CQI mais alta e o que isso significa na prática.
+
+## O conselho que você não pediu
+Uma frase acionável e específica, baseada no padrão observado.
+
+TOM: surpreender com insights não-óbvios, jamais ofender, ser específico (use os números e nomes dos sinais), nunca genérico. Não enrole, não use clichês motivacionais. Se algum dado faltar, ignore — não invente.`;
+
+  const user = `Analisa essa sessão:
+
+\`\`\`json
+${JSON.stringify(payload, null, 2)}
+\`\`\`
+
+Produz o perfilamento agora, seguindo a estrutura exata.`;
+
+  const resp = await anthropic.messages.create({
+    model: ANTHROPIC_MODEL,
+    max_tokens: 1400,
+    temperature: 0.7,
+    system,
+    messages: [{ role: 'user', content: user }],
+  });
+  const text = resp.content.find(c => c.type === 'text')?.text || '';
+  return text.trim();
+}
+
+function ruleBasedReport(p) {
+  const top = (p.top_signals?.[0]?.type) || 'sinal indeterminado';
+  const topCount = p.top_signals?.[0]?.count || 0;
+  const engPct = p.engagement_pct?.engaged ?? 0;
+  const cqi = p.cqi?.quality_index != null ? Math.round(p.cqi.quality_index) : '—';
+  const answered = (p.per_question || []).filter(q => q.really_answered).length;
+  const dims = p.cqi || {};
+  const topDim = ['clarity','authority','energy','rapport','learning']
+    .filter(d => dims[d] != null)
+    .sort((a,b) => (dims[b] ?? 0) - (dims[a] ?? 0))[0];
+
+  return `# 🧠 Perfilamento rápido
+
+CQI ${cqi}/100 · ${engPct}% engajado · ${p.raw_signal_count || 0} sinais ao longo de ${p.duration_s}s · respondeu ${answered}/${(p.per_question||[]).length} perguntas.
+
+## O que vimos
+O sinal mais recorrente foi **${top}** com ${topCount} ocorrência(s). Sua dimensão CQI mais forte foi **${topDim || '—'}** (${topDim ? Math.round(dims[topDim]) : '—'}/100).
+
+## Resposta por pergunta
+${(p.per_question || []).map(q => `- **${q.idx}.** ${q.really_answered ? '✓ respondeu' : '✗ silenciou'} · ${Math.round((q.audio_activity || 0) * 100)}% voz · sinais: ${(q.signals || []).map(s => s.type).join(', ') || 'nenhum'}`).join('\n')}
+
+*Report gerado pelo backend em modo fallback — sem IA conectada. Configure ANTHROPIC_API_KEY no Render pra ativar o perfilamento turbinado.*`;
+}
+
+// ============= WS proxy =============
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
 
@@ -126,9 +248,10 @@ function log(id, ...args) {
 }
 
 server.listen(PORT, () => {
-  console.log(`\n  Interhuman Signals proxy rodando em :${PORT}`);
+  console.log(`\n  Interhuman Signals proxy + report rodando em :${PORT}`);
   console.log(`  Upstream: ${UPSTREAM_URL}`);
-  console.log(`  Chave carregada: ${API_KEY.slice(0, 12)}...${API_KEY.slice(-4)}`);
-  console.log(`  Passcode: ${PASSCODE ? 'EXIGIDO' : 'desligado'}`);
-  console.log(`  Origins permitidos: ${ALLOWED_ORIGINS.length ? ALLOWED_ORIGINS.join(', ') : '(qualquer)'}\n`);
+  console.log(`  Chave Interhuman: ${API_KEY.slice(0, 12)}...${API_KEY.slice(-4)}`);
+  console.log(`  Passcode WS: ${PASSCODE ? 'EXIGIDO' : 'desligado'}`);
+  console.log(`  Origins permitidos: ${ALLOWED_ORIGINS.length ? ALLOWED_ORIGINS.join(', ') : '(qualquer)'}`);
+  console.log(`  Report IA: ${ANTHROPIC_API_KEY ? `${ANTHROPIC_MODEL} via Anthropic SDK` : 'desligado (fallback rule-based)'}\n`);
 });
