@@ -122,6 +122,24 @@ a:hover { text-decoration: underline; text-underline-offset: 3px; }
 }
 .sub { margin: 4px 0 0; color: var(--text-lo); font-size: 12px; }
 .status-cluster { display: flex; gap: 10px; align-items: center; }
+.user-pill {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 6px 6px 12px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 11px;
+}
+.user-email { color: var(--text-md); font-weight: 500; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-logout {
+  background: transparent; border: none;
+  font-family: inherit; font-size: 10px; font-weight: 700;
+  color: var(--text-lo); cursor: pointer;
+  padding: 4px 9px; border-radius: 999px;
+  letter-spacing: .08em; text-transform: uppercase;
+  transition: all .15s;
+}
+.user-logout:hover { background: var(--bad); color: white; }
+@media (max-width: 720px) { .user-email { display: none; } }
 .badge {
   display: inline-flex; align-items: center; gap: 8px;
   padding: 7px 14px; border-radius: 999px;
@@ -428,7 +446,11 @@ body[data-phase="reporting"] .overlay { display: flex; }
 
 .overlay > div { display: none; width: 100%; max-width: 880px; }
 body[data-phase="connecting"]  .overlay-connecting  { display: block; }
-body[data-phase="questioning"] .overlay-questioning { display: block; position: relative; }
+body[data-phase="questioning"] .overlay-questioning {
+  display: flex; align-items: center; justify-content: center;
+  position: fixed; inset: 0; padding: 28px;
+  max-width: none;
+}
 body[data-phase="finalizing"]  .overlay-finalizing  { display: block; }
 body[data-phase="reporting"]   .overlay-reporting   { display: block; max-width: 760px; }
 
@@ -509,25 +531,25 @@ body[data-phase="reporting"]   .overlay-reporting   { display: block; max-width:
 }
 .q-mic.active .mic-label { color: var(--brand); }
 
-/* PIP video */
+/* PIP video — fixed pra ficar grudada na viewport, fora do card */
 .pip {
-  position: absolute; right: 24px; bottom: 24px;
+  position: fixed; right: 24px; bottom: 24px;
   width: 220px; aspect-ratio: 4/3;
   border-radius: 14px; overflow: hidden;
   border: 2px solid white;
   box-shadow: var(--shadow-lg);
   background: #0F172A;
-  z-index: 3;
+  z-index: 60;
 }
 .pip video {
   width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1);
 }
 
-/* Mini live signals strip */
+/* Mini live signals strip — fixed também */
 .mini-signals {
-  position: absolute; left: 24px; bottom: 24px;
+  position: fixed; left: 24px; bottom: 24px;
   display: flex; gap: 6px; flex-wrap: wrap;
-  max-width: 360px; z-index: 3;
+  max-width: 360px; z-index: 60;
 }
 .mini-chip {
   background: rgba(255,255,255,.9);

@@ -39,6 +39,10 @@
         <p class="sub">sessão de 2 minutos · 5 perguntas · perfilamento ao final</p>
       </div>
       <div class="status-cluster">
+        <div id="userPill" class="user-pill" hidden>
+          <span id="userEmail" class="user-email">—</span>
+          <button id="logoutBtn" class="user-logout" title="sair">sair</button>
+        </div>
         <div id="connBadge" class="badge badge-idle">desconectado</div>
         <div id="sessionTimer" class="timer">00:00</div>
       </div>
@@ -227,6 +231,25 @@
   </div>
 
   <script src="config.js"></script>
+  <script>
+    // ===== Auth gate (executa antes de carregar app.js) =====
+    (function () {
+      const cfg = window.IH_CONFIG || {};
+      const isProd = cfg.wsUrl && cfg.wsUrl.includes('onrender.com');
+      if (!isProd) return;  // dev local: sem gate
+      let auth;
+      try { auth = JSON.parse(localStorage.getItem('ego_auth') || 'null'); } catch {}
+      const expired = auth && auth.exp && Date.now() / 1000 > auth.exp;
+      if (!auth || !auth.token || expired) {
+        localStorage.removeItem('ego_auth');
+        location.replace('login.html');
+        return;
+      }
+      window.IH_CONFIG.token = auth.token;
+      window.IH_CONFIG.userEmail = auth.email;
+      window.IH_CONFIG.userExp = auth.exp;
+    })();
+  </script>
   <script src="app.js" type="module"></script>
 </body>
 </html>

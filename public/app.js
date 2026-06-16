@@ -241,11 +241,14 @@ async function startSession() {
   const cfg = window.IH_CONFIG || {};
   const defaultUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
   let wsBase = cfg.wsUrl || defaultUrl;
+  const token = cfg.token || '';
   const passcode = new URLSearchParams(location.search).get('p') || cfg.passcode || '';
-  const wsUrl = passcode ? `${wsBase}?p=${encodeURIComponent(passcode)}` : wsBase;
+  let wsUrl = wsBase;
+  if (token) wsUrl = `${wsBase}?t=${encodeURIComponent(token)}`;
+  else if (passcode) wsUrl = `${wsBase}?p=${encodeURIComponent(passcode)}`;
   state.ws = new WebSocket(wsUrl);
   state.ws.binaryType = 'arraybuffer';
-  pushRaw('proxy', 'conectando', { wsUrl: wsBase, hasPasscode: Boolean(passcode) });
+  pushRaw('proxy', 'conectando', { wsUrl: wsBase, auth: token ? 'token' : (passcode ? 'passcode' : 'none') });
 
   state.ws.onopen = () => {
     connectingText.textContent = 'abrindo upstream interhuman…';
@@ -642,6 +645,17 @@ function handleServerMessage(text) {
   try { msg = JSON.parse(text); } catch { pushRaw('proxy', 'non-json', { raw: text.slice(0, 200) }); return; }
   const t = msg.type || 'unknown';
 
+  if (t === 'proxy.auth_rejected') {
+    pushRaw('error', 'auth_rejected', msg.data);
+    setConn(msg.data?.reason || 'auth falhou', 'badge-error');
+    // Token inválido/expirado → limpa storage e manda pra login
+    if ((msg.data?.reason || '').includes('credentials')) {
+      localStorage.removeItem('ego_auth');
+      setTimeout(() => location.replace('login.html'), 1500);
+    }
+    setPhase('idle');
+    return;
+  }
   if (t === 'proxy.upstream_open') {
     setConn('upstream conectado', 'badge-ready');
     const cfg = { include: ['conversation_quality_overall', 'conversation_quality_timeline'] };
@@ -846,6 +860,21 @@ function stringify(d) { if (d == null) return ''; try { return JSON.stringify(d)
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 }
+
+// ============= Logged-in user pill =============
+(function setupUserPill() {
+  const cfg = window.IH_CONFIG || {};
+  const userPill = document.getElementById('userPill');
+  const userEmail = document.getElementById('userEmail');
+  const logoutBtn = document.getElementById('logoutBtn');
+  if (!cfg.userEmail || !userPill) return;
+  userEmail.textContent = cfg.userEmail;
+  userPill.hidden = false;
+  logoutBtn.addEventListener('click', () => {
+    localStorage.removeItem('ego_auth');
+    location.replace('login.html');
+  });
+})();
 
 // Initial UI hint
 pushRaw('proxy', 'pronto', { hint: 'clique em "Iniciar sessão" — 2 minutos, 5 perguntas, relatório no fim' });

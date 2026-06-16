@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>entrar — ego signals</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&display=swap" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%23002E46'/%3E%3Cstop offset='65%25' stop-color='%233BAAA6'/%3E%3Cstop offset='100%25' stop-color='%23FCFDE4'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='32' cy='32' r='28' fill='url(%23g)'/%3E%3Ctext x='32' y='46' text-anchor='middle' font-size='40' font-family='Montserrat,sans-serif' font-weight='700' fill='white'%3E%CE%A8%3C/text%3E%3C/svg%3E" />
+  <script src="config.js"></script>
+  <style>
+    :root {
+      --brand:      #3C979F;
+      --brand-2:    #31939A;
+      --brand-dark: #002E46;
+      --brand-mid:  #3BAAA6;
+      --brand-cream:#FCFDE4;
+      --accent-warm:#F0B97A;
+      --accent-pink:#E879A8;
+      --text:       #0F172A;
+      --text-md:    #374151;
+      --text-lo:    #6B7280;
+      --text-xlo:   #9CA3AF;
+      --border:     #E0EBEC;
+      --bad:        #EF4444;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; height: 100%; }
+    body {
+      font-family: 'Montserrat', system-ui, -apple-system, sans-serif;
+      color: var(--text);
+      overflow: hidden;
+      position: relative;
+      background: var(--brand-dark);
+    }
+
+    /* ====== Animated mesh gradient background ====== */
+    .mesh {
+      position: fixed; inset: -10%;
+      background:
+        radial-gradient(at 18% 24%, rgba(59, 170, 166, .85) 0px, transparent 45%),
+        radial-gradient(at 85% 18%, rgba(252, 253, 228, .65) 0px, transparent 40%),
+        radial-gradient(at 75% 85%, rgba(240, 185, 122, .55) 0px, transparent 40%),
+        radial-gradient(at 25% 90%, rgba(232, 121, 168, .35) 0px, transparent 45%),
+        radial-gradient(at 50% 50%, rgba(59, 170, 166, .35) 0px, transparent 60%),
+        linear-gradient(140deg, #001a2a 0%, #002E46 50%, #003a5c 100%);
+      filter: blur(0px);
+      animation: meshShift 22s ease-in-out infinite alternate;
+      z-index: 0;
+    }
+    @keyframes meshShift {
+      0%   { transform: translate(0%, 0%) rotate(0deg) scale(1.05); }
+      33%  { transform: translate(-3%, -2%) rotate(2deg) scale(1.12); }
+      66%  { transform: translate(2%, 3%) rotate(-2deg) scale(1.08); }
+      100% { transform: translate(-2%, 2%) rotate(1deg) scale(1.15); }
+    }
+    .grain {
+      position: fixed; inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200' viewBox='0 0 200 200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .15 0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E");
+      opacity: .35;
+      pointer-events: none;
+      mix-blend-mode: overlay;
+      z-index: 1;
+    }
+
+    /* ====== Layout ====== */
+    .wrap {
+      position: relative; z-index: 2;
+      width: 100%; height: 100%;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      align-items: stretch;
+    }
+    .brand-panel {
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center;
+      padding: 48px;
+      color: white;
+      gap: 28px;
+      position: relative;
+    }
+    .brand-mark {
+      display: flex; flex-direction: column; align-items: center;
+      gap: 6px;
+      animation: floatLogo 6s ease-in-out infinite alternate;
+    }
+    @keyframes floatLogo {
+      0%   { transform: translateY(-4px); }
+      100% { transform: translateY(8px); }
+    }
+    .brand-mark svg { width: 140px; height: 140px; filter: drop-shadow(0 6px 24px rgba(0, 0, 0, .35)); }
+    .brand-mark .wordmark {
+      font-weight: 300;
+      font-size: 48px;
+      letter-spacing: .04em;
+      color: white;
+      filter: drop-shadow(0 4px 18px rgba(0,0,0,.3));
+    }
+    .brand-tagline {
+      max-width: 360px;
+      text-align: center;
+      color: rgba(255,255,255,.78);
+      font-size: 14px;
+      line-height: 1.6;
+      font-weight: 400;
+    }
+    .brand-tagline strong { color: white; font-weight: 600; }
+    .brand-footer {
+      position: absolute; bottom: 28px; left: 0; right: 0;
+      text-align: center;
+      color: rgba(255,255,255,.45);
+      font-size: 11px;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    /* ====== Form panel ====== */
+    .form-panel {
+      display: flex; align-items: center; justify-content: center;
+      padding: 28px;
+    }
+    .form-card {
+      width: 100%; max-width: 440px;
+      background: rgba(255, 255, 255, .96);
+      backdrop-filter: blur(24px) saturate(180%);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+      border: 1px solid rgba(255, 255, 255, .6);
+      border-radius: 20px;
+      padding: 40px 36px;
+      box-shadow:
+        0 30px 60px rgba(0, 0, 0, .25),
+        0 10px 20px rgba(0, 0, 0, .15),
+        inset 0 1px 0 rgba(255,255,255,.6);
+      animation: cardEnter .8s cubic-bezier(.2,.9,.3,1) both;
+    }
+    @keyframes cardEnter {
+      0%   { opacity: 0; transform: translateY(20px) scale(.98); }
+      100% { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .form-card h1 {
+      margin: 0;
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -.01em;
+      color: var(--text);
+      text-transform: lowercase;
+    }
+    .form-card p.lead {
+      margin: 6px 0 32px;
+      font-size: 13px;
+      color: var(--text-lo);
+      line-height: 1.5;
+    }
+
+    /* ====== Floating-label input ====== */
+    .field {
+      position: relative;
+      margin-bottom: 18px;
+    }
+    .field input {
+      width: 100%;
+      padding: 22px 16px 10px;
+      font-size: 14px;
+      font-family: inherit;
+      color: var(--text);
+      background: white;
+      border: 1.5px solid var(--border);
+      border-radius: 12px;
+      outline: none;
+      transition: border-color .2s, box-shadow .2s;
+    }
+    .field input:focus {
+      border-color: var(--brand);
+      box-shadow: 0 0 0 4px rgba(60, 151, 159, .12);
+    }
+    .field label {
+      position: absolute;
+      left: 16px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 14px;
+      color: var(--text-lo);
+      pointer-events: none;
+      transition: all .18s ease;
+      background: transparent;
+      padding: 0 4px;
+    }
+    .field input:focus + label,
+    .field input:not(:placeholder-shown) + label {
+      top: 12px;
+      transform: translateY(0);
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--brand-2);
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+
+    /* ====== Row: remember + forgot ====== */
+    .options-row {
+      display: flex; justify-content: space-between; align-items: center;
+      margin: 4px 0 22px;
+      font-size: 12px;
+    }
+    .remember {
+      display: flex; align-items: center; gap: 8px;
+      color: var(--text-md);
+      cursor: pointer;
+      user-select: none;
+    }
+    .remember input { display: none; }
+    .remember .box {
+      width: 16px; height: 16px; border-radius: 4px;
+      border: 1.5px solid var(--border);
+      background: white;
+      display: grid; place-items: center;
+      transition: all .15s;
+    }
+    .remember input:checked + .box {
+      background: var(--brand);
+      border-color: var(--brand);
+    }
+    .remember input:checked + .box::after {
+      content: '✓'; color: white; font-size: 11px; font-weight: 800;
+    }
+    .forgot {
+      color: var(--brand-2);
+      text-decoration: none;
+      font-weight: 500;
+    }
+    .forgot:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+    /* ====== Submit button ====== */
+    .submit-btn {
+      width: 100%; padding: 14px 20px;
+      border: none;
+      border-radius: 999px;
+      font-family: inherit; font-weight: 600; font-size: 14px;
+      color: white;
+      background: linear-gradient(135deg, var(--brand-dark) 0%, var(--brand-2) 60%, var(--brand) 100%);
+      cursor: pointer;
+      transition: all .15s;
+      box-shadow: 0 6px 18px rgba(0, 46, 70, .28);
+      position: relative; overflow: hidden;
+    }
+    .submit-btn::after {
+      content: ''; position: absolute; inset: 0;
+      background: linear-gradient(135deg, transparent, rgba(255,255,255,.18), transparent);
+      transform: translateX(-100%);
+      transition: transform .6s;
+    }
+    .submit-btn:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 28px rgba(0, 46, 70, .35);
+    }
+    .submit-btn:hover:not(:disabled)::after { transform: translateX(100%); }
+    .submit-btn:disabled { opacity: .6; cursor: not-allowed; }
+    .submit-btn.loading {
+      color: transparent;
+    }
+    .submit-btn.loading::before {
+      content: ''; position: absolute;
+      top: 50%; left: 50%; width: 20px; height: 20px;
+      margin: -10px 0 0 -10px;
+      border-radius: 50%;
+      border: 2.5px solid rgba(255,255,255,.35);
+      border-top-color: white;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ====== Footer link ====== */
+    .signup-row {
+      margin-top: 22px;
+      text-align: center;
+      font-size: 13px;
+      color: var(--text-lo);
+    }
+    .signup-row a {
+      color: var(--brand-2);
+      font-weight: 600;
+      text-decoration: none;
+    }
+    .signup-row a:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+    /* ====== Error banner ====== */
+    .alert {
+      background: rgba(239, 68, 68, .08);
+      border: 1px solid rgba(239, 68, 68, .25);
+      color: #B91C1C;
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 12px;
+      font-weight: 500;
+      margin-bottom: 18px;
+      display: none;
+      animation: shake .4s;
+    }
+    .alert.show { display: block; }
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      20% { transform: translateX(-4px); }
+      40% { transform: translateX(4px); }
+      60% { transform: translateX(-2px); }
+      80% { transform: translateX(2px); }
+    }
+
+    /* ====== Responsive ====== */
+    @media (max-width: 860px) {
+      .wrap { grid-template-columns: 1fr; }
+      .brand-panel { padding: 36px 28px 12px; gap: 16px; }
+      .brand-mark svg { width: 84px; height: 84px; }
+      .brand-mark .wordmark { font-size: 30px; }
+      .brand-tagline { display: none; }
+      .brand-footer { display: none; }
+      .form-panel { padding: 12px 16px 36px; }
+      .form-card { padding: 32px 24px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="mesh" aria-hidden="true"></div>
+  <div class="grain" aria-hidden="true"></div>
+
+  <div class="wrap">
+    <!-- BRAND PANEL (LEFT) -->
+    <section class="brand-panel">
+      <div class="brand-mark">
+        <svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <defs>
+            <radialGradient id="ringGlow" cx="50%" cy="50%" r="50%">
+              <stop offset="60%" stop-color="rgba(255,255,255,0)" />
+              <stop offset="100%" stop-color="rgba(255,255,255,.55)" />
+            </radialGradient>
+          </defs>
+          <circle cx="40" cy="40" r="32" fill="none" stroke="white" stroke-width="2.5" />
+          <circle cx="40" cy="40" r="38" fill="url(#ringGlow)" />
+          <text x="40" y="56" text-anchor="middle" font-size="48" font-family="Montserrat, sans-serif" font-weight="700" fill="white">Ψ</text>
+        </svg>
+        <span class="wordmark">ego</span>
+      </div>
+      <p class="brand-tagline">
+        <strong>signals</strong> — analise sua presença em tempo real.<br/>
+        12 sinais sociais, engagement e conversation quality em uma sessão de 2 minutos.
+      </p>
+      <div class="brand-footer">portal de acesso · © 2026</div>
+    </section>
+
+    <!-- FORM PANEL (RIGHT) -->
+    <section class="form-panel">
+      <form class="form-card" id="loginForm" autocomplete="on">
+        <h1>entrar</h1>
+        <p class="lead">acesse seu painel de sinais e perfilamento</p>
+
+        <div class="alert" id="alert" role="alert"></div>
+
+        <div class="field">
+          <input type="email" id="email" name="email" placeholder=" " required autocomplete="email" />
+          <label for="email">e-mail</label>
+        </div>
+        <div class="field">
+          <input type="password" id="password" name="password" placeholder=" " required autocomplete="current-password" />
+          <label for="password">senha</label>
+        </div>
+
+        <div class="options-row">
+          <label class="remember">
+            <input type="checkbox" id="rememberMe" />
+            <span class="box"></span>
+            <span>lembrar de mim</span>
+          </label>
+          <a href="#" class="forgot" onclick="alert('Entre em contato com o admin pra resetar.'); return false;">esqueci minha senha</a>
+        </div>
+
+        <button type="submit" class="submit-btn" id="submitBtn">acessar</button>
+
+        <div class="signup-row">
+          ainda não tem acesso? <a href="mailto:rafael@sougni.com?subject=ego%20signals%20%E2%80%94%20solicitar%20acesso">solicitar acesso</a>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <script>
+    // ====== Auto-redirect if already logged in ======
+    (function () {
+      const auth = JSON.parse(localStorage.getItem('ego_auth') || 'null');
+      if (auth && auth.token && (!auth.exp || Date.now() / 1000 < auth.exp)) {
+        location.replace('/');
+      }
+    })();
+
+    // ====== Login submit ======
+    const form = document.getElementById('loginForm');
+    const btn = document.getElementById('submitBtn');
+    const alertEl = document.getElementById('alert');
+
+    function showError(msg) {
+      alertEl.textContent = msg;
+      alertEl.classList.add('show');
+      // re-trigger shake
+      alertEl.style.animation = 'none';
+      alertEl.offsetHeight;
+      alertEl.style.animation = '';
+    }
+
+    function authEndpoint() {
+      const cfg = window.IH_CONFIG || {};
+      if (cfg.wsUrl) {
+        return cfg.wsUrl.replace(/^wss?:\/\//, location.protocol + '//').replace(/\/ws$/, '/auth');
+      }
+      return `${location.protocol}//${location.host}/auth`;
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      alertEl.classList.remove('show');
+      btn.classList.add('loading');
+      btn.disabled = true;
+
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      const rememberMe = document.getElementById('rememberMe').checked;
+
+      try {
+        const r = await fetch(authEndpoint(), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password, rememberMe }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          showError(data.error || `erro ${r.status}`);
+          btn.classList.remove('loading');
+          btn.disabled = false;
+          return;
+        }
+        localStorage.setItem('ego_auth', JSON.stringify({
+          token: data.token,
+          email: data.email,
+          exp: data.exp,
+        }));
+        // success → redirect to dashboard
+        location.replace('/');
+      } catch (err) {
+        showError('falha na conexão: ' + err.message);
+        btn.classList.remove('loading');
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

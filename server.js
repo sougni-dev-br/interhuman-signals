@@ -8,6 +8,7 @@ import 'dotenv/config';
 import express from 'express';
 import http from 'node:http';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import Anthropic from '@anthropic-ai/sdk';
@@ -22,6 +23,50 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
   .split(',').map(s => s.trim()).filter(Boolean);
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
+
+// Auth — USERS é uma string "email1:senha1,email2:senha2" no env do Render.
+// TOKEN_SECRET assina os tokens HMAC; default deriva do PASSCODE pra não ter
+// que setar mais uma env var.
+const USERS = parseUsers(process.env.USERS || '');
+const TOKEN_SECRET = process.env.TOKEN_SECRET || PASSCODE || 'change-me';
+const TOKEN_TTL_HOURS = Number(process.env.TOKEN_TTL_HOURS || 24);
+
+function parseUsers(raw) {
+  const m = new Map();
+  for (const pair of raw.split(',')) {
+    const [email, pass] = pair.split(':');
+    if (email && pass) m.set(email.trim().toLowerCase(), pass);
+  }
+  return m;
+}
+
+function b64url(buf) {
+  return Buffer.from(buf).toString('base64').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+}
+function b64urlDecode(s) {
+  s = s.replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  return Buffer.from(s, 'base64');
+}
+function signToken(payload) {
+  const body = b64url(JSON.stringify(payload));
+  const sig = b64url(crypto.createHmac('sha256', TOKEN_SECRET).update(body).digest());
+  return `${body}.${sig}`;
+}
+function verifyToken(token) {
+  if (!token || typeof token !== 'string') return null;
+  const [body, sig] = token.split('.');
+  if (!body || !sig) return null;
+  const expectedSig = b64url(crypto.createHmac('sha256', TOKEN_SECRET).update(body).digest());
+  // constant-time comparison
+  const a = Buffer.from(sig); const b = Buffer.from(expectedSig);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  try {
+    const payload = JSON.parse(b64urlDecode(body).toString('utf8'));
+    if (payload.exp && Date.now() / 1000 > payload.exp) return null;
+    return payload;
+  } catch { return null; }
+}
 
 if (!API_KEY) {
   console.error('[fatal] INTERHUMAN_API_KEY ausente em .env');
@@ -40,7 +85,42 @@ app.get('/health', (_req, res) => res.json({
   originsAllowed: ALLOWED_ORIGINS,
   aiReportEnabled: Boolean(ANTHROPIC_API_KEY),
   aiModel: ANTHROPIC_API_KEY ? ANTHROPIC_MODEL : null,
+  authEnabled: USERS.size > 0,
+  userCount: USERS.size,
 }));
+
+// ============= /auth — login com email + senha =============
+app.options('/auth', (req, res) => {
+  res.set({
+    'Access-Control-Allow-Origin': req.headers.origin || '*',
+    'Access-Control-Allow-Methods': 'POST',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Max-Age': '600',
+  });
+  res.status(204).end();
+});
+app.post('/auth', (req, res) => {
+  if (!checkOrigin(req)) return res.status(403).json({ error: 'origin not allowed' });
+  res.set('Access-Control-Allow-Origin', req.headers.origin || '*');
+
+  const { email, password, rememberMe } = req.body || {};
+  if (!email || !password) return res.status(400).json({ error: 'email e senha são obrigatórios' });
+  if (!USERS.size) return res.status(503).json({ error: 'auth não configurado no servidor (USERS vazio)' });
+
+  const stored = USERS.get(String(email).trim().toLowerCase());
+  // constant-time compare se ambos existem
+  if (!stored || !crypto.timingSafeEqual(
+    Buffer.from(stored.padEnd(64, '\0')),
+    Buffer.from(String(password).padEnd(64, '\0')).slice(0, 64),
+  )) {
+    return res.status(401).json({ error: 'email ou senha inválidos' });
+  }
+
+  const ttlHours = rememberMe ? 24 * 30 : TOKEN_TTL_HOURS;
+  const exp = Math.floor(Date.now() / 1000) + ttlHours * 3600;
+  const token = signToken({ email: email.toLowerCase(), exp });
+  return res.json({ ok: true, token, email: email.toLowerCase(), exp });
+});
 
 // ============= /report — gera perfilamento via Claude =============
 function checkOrigin(req) {
@@ -167,20 +247,30 @@ wss.on('connection', (client, req) => {
   const clientId = Math.random().toString(36).slice(2, 8);
   const url = new URL(req.url, `http://${req.headers.host}`);
   const p = url.searchParams.get('p') || '';
+  const t = url.searchParams.get('t') || '';
   const origin = req.headers.origin || '';
 
-  if (PASSCODE && p !== PASSCODE) {
-    log(clientId, 'REJECT passcode', { origin });
-    client.close(4401, 'invalid passcode');
-    return;
-  }
+  // Origin allowlist first (cheapest check)
   if (ALLOWED_ORIGINS.length && !ALLOWED_ORIGINS.includes(origin)) {
     log(clientId, 'REJECT origin', { origin });
-    client.close(4403, 'origin not allowed');
+    rejectClient(client, 4403, 'origin_not_allowed', 'origin não permitido');
     return;
   }
 
-  log(clientId, 'browser conectado', { origin: origin || '(none)' });
+  // Auth: aceita token HMAC OU passcode legado (qualquer um válido)
+  let authedBy = null;
+  let authedEmail = null;
+  const tokenPayload = t ? verifyToken(t) : null;
+  if (tokenPayload) { authedBy = 'token'; authedEmail = tokenPayload.email; }
+  else if (PASSCODE && p === PASSCODE) { authedBy = 'passcode'; }
+
+  if (!authedBy && (PASSCODE || USERS.size)) {
+    log(clientId, 'REJECT auth', { origin, hadToken: Boolean(t), hadPasscode: Boolean(p) });
+    rejectClient(client, 4401, 'invalid_credentials', 'token ou passcode inválido');
+    return;
+  }
+
+  log(clientId, 'browser conectado', { origin: origin || '(none)', authedBy, authedEmail });
 
   const upstream = new WebSocket(UPSTREAM_URL, {
     headers: { Authorization: `Bearer ${API_KEY}` },
@@ -243,15 +333,27 @@ function safeSend(ws, data, opts) {
   }
 }
 
+function rejectClient(client, code, reasonCode, reasonText) {
+  // Envia mensagem JSON pro browser entender ANTES de fechar (cloudflare etc.
+  // costuma stripar custom close codes, então mandar JSON é mais robusto).
+  safeSend(client, JSON.stringify({
+    type: 'proxy.auth_rejected',
+    data: { code, reason: reasonCode, message: reasonText },
+  }));
+  try { client.close(code, reasonCode); } catch {}
+}
+
 function log(id, ...args) {
   console.log(`[${new Date().toISOString()}] [${id}]`, ...args);
 }
 
 server.listen(PORT, () => {
-  console.log(`\n  Interhuman Signals proxy + report rodando em :${PORT}`);
+  console.log(`\n  Interhuman Signals proxy + report + auth rodando em :${PORT}`);
   console.log(`  Upstream: ${UPSTREAM_URL}`);
   console.log(`  Chave Interhuman: ${API_KEY.slice(0, 12)}...${API_KEY.slice(-4)}`);
   console.log(`  Passcode WS: ${PASSCODE ? 'EXIGIDO' : 'desligado'}`);
   console.log(`  Origins permitidos: ${ALLOWED_ORIGINS.length ? ALLOWED_ORIGINS.join(', ') : '(qualquer)'}`);
+  console.log(`  Auth /auth: ${USERS.size ? `${USERS.size} usuário(s) configurado(s)` : 'desligado (USERS vazio)'}`);
+  console.log(`  Token TTL: ${TOKEN_TTL_HOURS}h (com rememberMe: 720h)`);
   console.log(`  Report IA: ${ANTHROPIC_API_KEY ? `${ANTHROPIC_MODEL} via Anthropic SDK` : 'desligado (fallback rule-based)'}\n`);
 });
