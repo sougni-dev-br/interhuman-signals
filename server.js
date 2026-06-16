@@ -12,6 +12,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import Anthropic from '@anthropic-ai/sdk';
+import { ReadAIClient } from './read-ai-client.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -23,6 +24,19 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
   .split(',').map(s => s.trim()).filter(Boolean);
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
+
+// Read.AI v2
+const READ_AI_CLIENT_ID = process.env.READ_AI_CLIENT_ID || '';
+const READ_AI_CLIENT_SECRET = process.env.READ_AI_CLIENT_SECRET || '';
+const READ_AI_REFRESH_TOKEN = process.env.READ_AI_REFRESH_TOKEN || '';
+const readai = (READ_AI_CLIENT_ID && READ_AI_CLIENT_SECRET && READ_AI_REFRESH_TOKEN)
+  ? new ReadAIClient({
+      clientId: READ_AI_CLIENT_ID,
+      clientSecret: READ_AI_CLIENT_SECRET,
+      initialRefreshToken: READ_AI_REFRESH_TOKEN,
+      persistPath: path.join(__dirname, '.read-ai-state.json'),
+    })
+  : null;
 
 // Auth — USERS é uma string "email1:senha1,email2:senha2" no env do Render.
 // TOKEN_SECRET assina os tokens HMAC; default deriva do PASSCODE pra não ter
@@ -87,6 +101,8 @@ app.get('/health', (_req, res) => res.json({
   aiModel: ANTHROPIC_API_KEY ? ANTHROPIC_MODEL : null,
   authEnabled: USERS.size > 0,
   userCount: USERS.size,
+  readAiEnabled: Boolean(readai),
+  v2Endpoints: readai ? ['/v2/benchmarks', '/v2/report'] : [],
 }));
 
 // ============= /auth — login com email + senha =============
@@ -213,6 +229,210 @@ Produz o perfilamento agora, seguindo a estrutura exata.`;
   });
   const text = resp.content.find(c => c.type === 'text')?.text || '';
   return text.trim();
+}
+
+// ============= /v2/benchmarks — médias históricas Read.AI =============
+// Frontend chama no load do dashboard pra mostrar "sua média histórica" ao
+// lado dos valores live. Cacheia em memória por 5 minutos por usuário.
+const benchmarkCache = new Map();
+const BENCHMARK_TTL_MS = 5 * 60 * 1000;
+
+app.options('/v2/benchmarks', (req, res) => {
+  res.set({
+    'Access-Control-Allow-Origin': req.headers.origin || '*',
+    'Access-Control-Allow-Methods': 'GET',
+    'Access-Control-Allow-Headers': 'Authorization',
+  });
+  res.status(204).end();
+});
+app.get('/v2/benchmarks', async (req, res) => {
+  if (!checkOrigin(req)) return res.status(403).json({ error: 'origin not allowed' });
+  res.set('Access-Control-Allow-Origin', req.headers.origin || '*');
+  if (!readai) return res.json({ available: false, reason: 'READ_AI not configured' });
+
+  const cacheKey = req.headers.authorization || 'anon';
+  const cached = benchmarkCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return res.json({ ...cached.data, cached: true });
+  }
+
+  try {
+    const ninetyDaysAgo = Date.now() - 90 * 24 * 60 * 60 * 1000;
+    const meetings = await readai.listAllMeetings({
+      startGte: ninetyDaysAgo,
+      expand: ['metrics'],
+      maxPages: 5,  // 50 reuniões max
+    });
+
+    const withMetrics = meetings.filter(m => m.metrics && m.metrics.read_score != null);
+    const n = withMetrics.length;
+    const stats = (key) => {
+      const vals = withMetrics.map(m => m.metrics[key]).filter(v => Number.isFinite(v));
+      if (!vals.length) return null;
+      const sum = vals.reduce((a, b) => a + b, 0);
+      const mean = sum / vals.length;
+      const sorted = vals.slice().sort((a, b) => a - b);
+      const median = sorted[Math.floor(sorted.length / 2)];
+      return {
+        mean: Math.round(mean * 100) / 100,
+        median: Math.round(median * 100) / 100,
+        min: Math.round(Math.min(...vals) * 100) / 100,
+        max: Math.round(Math.max(...vals) * 100) / 100,
+        n: vals.length,
+      };
+    };
+
+    const data = {
+      available: true,
+      window_days: 90,
+      meeting_count: meetings.length,
+      meetings_with_metrics: n,
+      benchmarks: {
+        read_score: stats('read_score'),
+        sentiment: stats('sentiment'),
+        engagement: stats('engagement'),
+      },
+      recent_titles: meetings.slice(0, 5).map(m => ({ title: m.title, start: m.start_time_ms })),
+    };
+    benchmarkCache.set(cacheKey, { data, expiresAt: Date.now() + BENCHMARK_TTL_MS });
+    res.json(data);
+  } catch (e) {
+    console.error('[v2/benchmarks]', e.message);
+    res.json({ available: false, error: e.message });
+  }
+});
+
+// ============= /v2/report — perfilamento Claude enriquecido com histórico Read.AI =============
+app.options('/v2/report', (req, res) => {
+  res.set({
+    'Access-Control-Allow-Origin': req.headers.origin || '*',
+    'Access-Control-Allow-Methods': 'POST',
+    'Access-Control-Allow-Headers': 'Content-Type',
+  });
+  res.status(204).end();
+});
+app.post('/v2/report', async (req, res) => {
+  if (!checkOrigin(req)) return res.status(403).json({ error: 'origin not allowed' });
+  res.set('Access-Control-Allow-Origin', req.headers.origin || '*');
+
+  const payload = req.body || {};
+  if (!anthropic) {
+    return res.json({ markdown: ruleBasedReport(payload), source: 'fallback-no-ai' });
+  }
+
+  // Tenta enriquecer com histórico Read.AI (não falha o relatório se Read.AI estiver fora)
+  let history = null;
+  if (readai) {
+    try {
+      const ninetyDaysAgo = Date.now() - 90 * 24 * 60 * 60 * 1000;
+      const meetings = await readai.listAllMeetings({
+        startGte: ninetyDaysAgo,
+        expand: ['metrics'],
+        maxPages: 5,
+      });
+      const withMetrics = meetings.filter(m => m.metrics && m.metrics.read_score != null);
+      const avg = (key) => {
+        const vals = withMetrics.map(m => m.metrics[key]).filter(Number.isFinite);
+        if (!vals.length) return null;
+        return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length * 10) / 10;
+      };
+      history = {
+        meeting_count: meetings.length,
+        meetings_with_metrics: withMetrics.length,
+        window_days: 90,
+        read_score_avg: avg('read_score'),
+        sentiment_avg: avg('sentiment'),
+        engagement_avg: avg('engagement'),
+        recent_titles: meetings.slice(0, 8).map(m => m.title).filter(Boolean),
+        platforms: [...new Set(meetings.map(m => m.platform).filter(Boolean))],
+      };
+    } catch (e) {
+      console.warn('[v2/report] readai history fail:', e.message);
+      history = { error: e.message };
+    }
+  }
+
+  try {
+    const md = await callClaudeV2(payload, history);
+    return res.json({ markdown: md, source: 'claude-v2', model: ANTHROPIC_MODEL, history_used: Boolean(history && !history.error) });
+  } catch (e) {
+    console.error('[v2/report] Claude err:', e.message);
+    return res.json({
+      markdown: ruleBasedReport(payload),
+      source: 'fallback-error',
+      error: e.message,
+    });
+  }
+});
+
+async function callClaudeV2(payload, history) {
+  const system = `Você é um analista comportamental que produz perfilamentos densos, surpreendentes e respeitosos a partir de uma sessão de 2 minutos onde a pessoa respondeu 5 perguntas provocativas com a câmera ligada.
+
+Você recebe DOIS conjuntos de dados:
+
+A. SESSÃO AGORA — JSON com:
+- 5 perguntas, tempo falado em cada (audio_activity 0-1)
+- sinais sociais Interhuman detectados (12 tipos: agreement, confidence, confusion, disagreement, disengagement, engagement, frustration, hesitation, interest, skepticism, stress, uncertainty)
+- engagement state ao longo da sessão (% engaged/neutral/disengaged)
+- Conversation Quality Index 0-100 + 5 dimensões (clarity, authority, energy, rapport, learning)
+- top signals da sessão
+
+B. HISTÓRICO DA PESSOA — JSON do Read.AI com:
+- read_score médio das últimas reuniões reais (0-100)
+- sentiment médio (0-100)
+- engagement médio (0-100)
+- títulos recentes (contexto profissional)
+- plataformas usadas
+
+Use o HISTÓRICO pra CONTEXTUALIZAR a sessão. Se não houver histórico (history nulo ou sem dados), produza o perfilamento normal sem mencionar comparações inexistentes.
+
+REGRAS DE OUTPUT:
+- Markdown puro, sem code fences
+- ~350-400 palavras
+- Português BR, "você"
+- Seções (ordem rígida):
+
+# 🧠 [ARQUÉTIPO em 4-6 palavras provocativas]
+
+[uma linha de hard data: CQI + sinais top da sessão]
+
+[QUANDO houver histórico] **🔭 Comparação com sua média (últimas N reuniões reais):** uma linha com a comparação concreta dos 3 números (sentiment hoje vs média, engagement hoje vs média, etc) interpretando se está acima/abaixo.
+
+## O que você DISSE × O que vimos
+3-5 contrastes específicos pergunta-a-pergunta:
+- **"[pergunta resumida]"** → DISSE: [inferência sobre fala] · MOSTROU: [sinal dominante + interpretação]
+
+## Sua fragilidade oculta
+1 parágrafo (3-4 frases) sobre o sinal recorrente que apareceu sem a pessoa perceber. Cite o sinal e em quais perguntas. SE o histórico mostra padrão diferente da sessão (ex: sentiment hoje muito abaixo da média), mencione.
+
+## Seu superpoder de comunicação
+1 parágrafo sobre a dimensão CQI mais alta. SE o histórico Read.AI confirma esse superpoder (ex: read_score histórico alto), reforce com dados.
+
+## O conselho que você não pediu
+Uma frase acionável específica, ligada ao padrão observado. Se for relevante, use referência histórica ("Você consistentemente performa melhor em reuniões de [tipo]").
+
+TOM: surpreender com insights não-óbvios, jamais ofender, ser específico (use números concretos). Não enrole.`;
+
+  const user = `## A. SESSÃO AGORA
+\`\`\`json
+${JSON.stringify(payload, null, 2)}
+\`\`\`
+
+## B. HISTÓRICO READ.AI
+\`\`\`json
+${JSON.stringify(history, null, 2)}
+\`\`\`
+
+Produz o perfilamento seguindo a estrutura exata.`;
+
+  const resp = await anthropic.messages.create({
+    model: ANTHROPIC_MODEL,
+    max_tokens: 1800,
+    temperature: 0.7,
+    system,
+    messages: [{ role: 'user', content: user }],
+  });
+  return (resp.content.find(c => c.type === 'text')?.text || '').trim();
 }
 
 function ruleBasedReport(p) {

@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1.0" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#002E46" />
+  <title>ego signals v2 — realtime + histórico</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&display=swap" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%23002E46'/%3E%3Cstop offset='65%25' stop-color='%233BAAA6'/%3E%3Cstop offset='100%25' stop-color='%23FCFDE4'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='32' cy='32' r='28' fill='url(%23g)'/%3E%3Ctext x='32' y='46' text-anchor='middle' font-size='40' font-family='Montserrat,sans-serif' font-weight='700' fill='white'%3E%CE%A8%3C/text%3E%3C/svg%3E" />
+</head>
+<body data-phase="idle">
+  <!-- LEFT RAIL — ego brand panel -->
+  <aside class="rail">
+    <div class="rail-logo">
+      <svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <defs>
+          <radialGradient id="ringGlow" cx="50%" cy="50%" r="50%">
+            <stop offset="60%" stop-color="rgba(255,255,255,0)" />
+            <stop offset="100%" stop-color="rgba(255,255,255,.55)" />
+          </radialGradient>
+        </defs>
+        <circle cx="40" cy="40" r="32" fill="none" stroke="white" stroke-width="2.5" />
+        <circle cx="40" cy="40" r="38" fill="url(#ringGlow)" />
+        <text x="40" y="56" text-anchor="middle" font-size="48" font-family="Montserrat, sans-serif" font-weight="700" fill="white">Ψ</text>
+      </svg>
+      <span class="rail-wordmark">ego</span>
+      <span class="rail-version">v2</span>
+    </div>
+    <div class="rail-spacer"></div>
+    <p class="rail-tag">signals</p>
+  </aside>
+
+  <!-- MAIN SHELL -->
+  <div class="shell">
+    <header class="topbar">
+      <div>
+        <h1>Realtime Signals <span class="version-pill">v2</span></h1>
+        <p class="sub">sessão de 2 minutos · 5 perguntas · perfilamento contextualizado com seu histórico</p>
+      </div>
+      <div class="status-cluster">
+        <div id="userPill" class="user-pill" hidden>
+          <span id="userEmail" class="user-email">—</span>
+          <button id="logoutBtn" class="user-logout" title="sair">sair</button>
+        </div>
+        <div id="connBadge" class="badge badge-idle">desconectado</div>
+        <div id="sessionTimer" class="timer">00:00</div>
+      </div>
+    </header>
+
+    <!-- BENCHMARK STRIP — seu histórico Read.AI (melhoria v2) -->
+    <section class="bench-strip" id="benchStrip" hidden>
+      <div class="bench-header">
+        <span class="bench-icon">📊</span>
+        <div>
+          <h3 class="bench-title">seu histórico — últimos 90 dias</h3>
+          <p class="bench-sub" id="benchSub">carregando…</p>
+        </div>
+        <button class="bench-toggle" id="benchToggle" title="colapsar/expandir">−</button>
+      </div>
+      <div class="bench-cards" id="benchCards">
+        <div class="bench-card">
+          <span class="bench-label">read score</span>
+          <strong class="bench-value" id="benchRead">—</strong>
+          <span class="bench-range" id="benchReadRange">—</span>
+        </div>
+        <div class="bench-card">
+          <span class="bench-label">sentiment</span>
+          <strong class="bench-value" id="benchSent">—</strong>
+          <span class="bench-range" id="benchSentRange">—</span>
+        </div>
+        <div class="bench-card">
+          <span class="bench-label">engagement</span>
+          <strong class="bench-value" id="benchEng">—</strong>
+          <span class="bench-range" id="benchEngRange">—</span>
+        </div>
+      </div>
+      <p class="bench-note" id="benchNote" hidden></p>
+    </section>
+
+    <main class="grid">
+      <!-- VIDEO -->
+      <section class="card video-card">
+        <div class="card-h">
+          <h2>câmera</h2>
+          <span id="videoMeta" class="meta">—</span>
+        </div>
+        <div class="video-wrap">
+          <video id="preview" autoplay playsinline muted></video>
+          <div class="rec-dot" id="recDot" hidden></div>
+        </div>
+        <div class="controls">
+          <button id="startBtn" class="btn btn-primary">Iniciar sessão</button>
+          <button id="stopBtn" class="btn btn-ghost" disabled>Parar</button>
+        </div>
+        <div class="stream-stats">
+          <div><span>segmentos enviados</span><strong id="segCount">0</strong></div>
+          <div><span>bytes enviados</span><strong id="bytesSent">0</strong></div>
+          <div><span>último chunk</span><strong id="lastChunk">—</strong></div>
+          <div><span>codec</span><strong id="codecUsed">—</strong></div>
+        </div>
+      </section>
+
+      <!-- ENGAGEMENT -->
+      <section class="card engagement-card">
+        <div class="card-h">
+          <h2>engagement state</h2>
+          <span class="meta">attention monitor</span>
+        </div>
+        <div id="engageBig" class="engage-big engage-neutral">
+          <span class="engage-label">aguardando</span>
+          <span class="engage-since">—</span>
+        </div>
+        <div class="engage-legend">
+          <span><i class="dot engaged"></i> engaged</span>
+          <span><i class="dot neutral"></i> neutral</span>
+          <span><i class="dot disengaged"></i> disengaged</span>
+        </div>
+        <div class="engage-timeline" id="engageTimeline" aria-label="engagement timeline"></div>
+      </section>
+
+      <!-- 12 SOCIAL SIGNALS -->
+      <section class="card signals-card">
+        <div class="card-h">
+          <h2>sinais sociais</h2>
+          <span class="meta">12 detectores</span>
+        </div>
+        <div id="signalGrid" class="signal-grid"></div>
+        <div class="card-sub">
+          <h3>últimas detecções <small id="histCount">0</small></h3>
+          <ul id="signalHistory" class="history"></ul>
+        </div>
+      </section>
+
+      <!-- CQI -->
+      <section class="card cqi-card">
+        <div class="card-h">
+          <h2>conversation quality index</h2>
+          <span class="meta">0-100 · média das 5 dimensões</span>
+        </div>
+        <div class="cqi-main">
+          <div class="cqi-gauge" id="cqiGauge">
+            <svg viewBox="0 0 200 200" class="gauge-svg">
+              <defs>
+                <linearGradient id="gaugeGrad" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stop-color="#002E46" />
+                  <stop offset="60%" stop-color="#3BAAA6" />
+                  <stop offset="100%" stop-color="#FCFDE4" />
+                </linearGradient>
+              </defs>
+              <circle cx="100" cy="100" r="86" class="gauge-bg" />
+              <circle cx="100" cy="100" r="86" class="gauge-fg" id="gaugeFg" />
+            </svg>
+            <div class="gauge-center">
+              <span id="cqiScore" class="cqi-score">—</span>
+              <span id="cqiBand" class="cqi-band">sem dados</span>
+            </div>
+          </div>
+          <div class="cqi-dims">
+            <div class="dim" data-dim="clarity"><label>Clarity &amp; Structure</label><div class="bar"><div></div></div><span>—</span></div>
+            <div class="dim" data-dim="authority"><label>Authority &amp; Credibility</label><div class="bar"><div></div></div><span>—</span></div>
+            <div class="dim" data-dim="energy"><label>Energy &amp; Presence</label><div class="bar"><div></div></div><span>—</span></div>
+            <div class="dim" data-dim="rapport"><label>Rapport &amp; Safety</label><div class="bar"><div></div></div><span>—</span></div>
+            <div class="dim" data-dim="learning"><label>Learning &amp; Exploration</label><div class="bar"><div></div></div><span>—</span></div>
+          </div>
+        </div>
+        <div class="card-sub">
+          <h3>timeline cqi</h3>
+          <canvas id="cqiTimeline" width="800" height="120"></canvas>
+        </div>
+      </section>
+
+      <!-- RAW LOG -->
+      <section class="card log-card">
+        <div class="card-h">
+          <h2>eventos raw</h2>
+          <span class="meta" id="logCount">0 eventos</span>
+        </div>
+        <ul id="rawLog" class="raw-log"></ul>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <span>powered by <a href="https://www.interhuman.ai/signals-api" target="_blank" rel="noopener">interhuman signals API</a></span>
+      <span class="dotsep">·</span>
+      <span class="endpoint">wss://api.interhuman.ai/v1/stream/analyze</span>
+    </footer>
+  </div>
+
+  <!-- ============ SESSION OVERLAY (questioning / reporting) ============ -->
+  <div class="overlay" id="overlay">
+    <!-- Connecting phase -->
+    <div class="overlay-connecting">
+      <div class="loader">
+        <div class="loader-ring"></div>
+        <p class="loader-text" id="connectingText">preparando câmera e conexão…</p>
+      </div>
+    </div>
+
+    <!-- Questioning phase -->
+    <div class="overlay-questioning">
+      <div class="question-card">
+        <div class="q-meta">
+          <span class="q-num" id="qNum">pergunta 1 / 5</span>
+          <span class="q-time" id="qTime">20s</span>
+        </div>
+        <div class="q-progress"><div class="q-progress-bar" id="qProgressBar"></div></div>
+        <p class="q-text" id="qText">…</p>
+        <div class="q-mic">
+          <div class="mic-bars" id="micBars">
+            <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+          </div>
+          <span class="mic-label" id="micLabel">aguardando voz…</span>
+        </div>
+      </div>
+
+      <div class="pip">
+        <video id="pipVideo" autoplay playsinline muted></video>
+      </div>
+
+      <div class="mini-signals" id="miniSignals">
+        <!-- 12 mini chips clones populated by JS -->
+      </div>
+    </div>
+
+    <!-- Finalizing phase -->
+    <div class="overlay-finalizing">
+      <div class="loader">
+        <div class="loader-ring"></div>
+        <p class="loader-text">compilando seu perfilamento…</p>
+        <p class="loader-sub">Claude está analisando 5 perguntas, 12 sinais sociais, engagement e CQI</p>
+      </div>
+    </div>
+
+    <!-- Reporting phase -->
+    <div class="overlay-reporting">
+      <div class="report-card">
+        <div class="r-header">
+          <div>
+            <h2>seu perfilamento</h2>
+            <p class="r-sub" id="reportSubtitle">sessão de 2 minutos · 5 perguntas confrontadas</p>
+          </div>
+          <button class="r-close" id="reportCloseBtn" aria-label="fechar">×</button>
+        </div>
+        <div class="r-stats">
+          <div class="r-stat"><span>cqi final</span><strong id="rCqi">—</strong></div>
+          <div class="r-stat"><span>engajamento</span><strong id="rEng">—</strong></div>
+          <div class="r-stat"><span>sinais detectados</span><strong id="rSig">—</strong></div>
+          <div class="r-stat"><span>duração</span><strong id="rDur">—</strong></div>
+        </div>
+        <div class="r-markdown" id="reportMd"></div>
+        <div class="r-questions">
+          <h3>respostas registradas</h3>
+          <ol id="reportQList"></ol>
+        </div>
+        <div class="r-actions">
+          <button class="btn btn-primary" id="newSessionBtn">Nova sessão</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="config.js"></script>
+  <script>
+    // ===== Auth gate (executa antes de carregar app.js) =====
+    (function () {
+      const cfg = window.IH_CONFIG || {};
+      const isProd = cfg.wsUrl && cfg.wsUrl.includes('onrender.com');
+      if (!isProd) return;  // dev local: sem gate
+      let auth;
+      try { auth = JSON.parse(localStorage.getItem('ego_auth') || 'null'); } catch {}
+      const expired = auth && auth.exp && Date.now() / 1000 > auth.exp;
+      if (!auth || !auth.token || expired) {
+        localStorage.removeItem('ego_auth');
+        location.replace('../login.html');
+        return;
+      }
+      window.IH_CONFIG.token = auth.token;
+      window.IH_CONFIG.userEmail = auth.email;
+      window.IH_CONFIG.userExp = auth.exp;
+    })();
+  </script>
+  <script src="app.js" type="module"></script>
+</body>
+</html>
