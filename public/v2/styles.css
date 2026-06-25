@@ -1,35 +1,35 @@
-/* ============= Tokens — ego signals (portal.ego2save.com brand) ============= */
+/* ============= Tokens — ego signals (Sougni × Anthropic white) ============= */
 :root {
-  --brand:      #3C979F;
-  --brand-2:    #31939A;
-  --brand-dark: #002E46;
-  --brand-mid:  #3BAAA6;
-  --brand-cream:#FCFDE4;
-  --brand-grad: linear-gradient(135deg, #002E46 0%, #3BAAA6 62%, #FCFDE4 100%);
+  --brand:      #C26B43;   /* clay accent */
+  --brand-2:    #A8542F;   /* deep clay */
+  --brand-dark: #1C1B18;   /* warm ink */
+  --brand-mid:  #D08A5E;   /* light clay */
+  --brand-cream:#F6E9E0;   /* clay tint */
+  --brand-grad: linear-gradient(135deg, #C26B43 0%, #D9A06E 100%);
 
-  --bg:         #EEF7F8;
+  --bg:         #FAF9F6;   /* warm paper */
   --surface:    #FFFFFF;
-  --surface-2:  #F6FAFB;
-  --surface-3:  #E9F3F4;
+  --surface-2:  #F4F1EA;
+  --surface-3:  #EEEADF;
 
-  --text:       #0F172A;
-  --text-md:    #374151;
-  --text-lo:    #6B7280;
-  --text-xlo:   #9CA3AF;
+  --text:       #1C1B18;
+  --text-md:    #4A4842;
+  --text-lo:    #6E6B62;
+  --text-xlo:   #9A968B;
 
-  --border:     #E0EBEC;
-  --border-2:   #CCDEE0;
+  --border:     #ECE8DD;
+  --border-2:   #E2DDCF;
 
-  --good:       #14B8A6;
-  --warn:       #F59E0B;
-  --bad:        #EF4444;
-  --rose:       #F43F5E;
-  --gold:       #D97706;
+  --good:       #3E9B72;
+  --warn:       #E0922F;
+  --bad:        #DA5A47;
+  --rose:       #D8607A;
+  --gold:       #C2843A;
 
-  --shadow-sm:  0 1px 2px rgba(15,23,42,.04), 0 1px 3px rgba(15,23,42,.06);
-  --shadow:     0 4px 12px rgba(0,46,70,.06), 0 1px 3px rgba(0,46,70,.05);
-  --shadow-lg:  0 20px 40px rgba(0,46,70,.08), 0 8px 16px rgba(0,46,70,.04);
-  --shadow-xl:  0 30px 80px rgba(0,46,70,.18), 0 15px 30px rgba(0,46,70,.08);
+  --shadow-sm:  0 1px 2px rgba(28,27,24,.04), 0 1px 3px rgba(28,27,24,.05);
+  --shadow:     0 4px 14px rgba(28,27,24,.07), 0 1px 3px rgba(28,27,24,.05);
+  --shadow-lg:  0 20px 44px rgba(28,27,24,.09), 0 8px 16px rgba(28,27,24,.05);
+  --shadow-xl:  0 30px 80px rgba(28,27,24,.14), 0 15px 30px rgba(28,27,24,.07);
 
   --radius:     16px;
   --radius-sm:  10px;
@@ -63,39 +63,45 @@ a:hover { text-decoration: underline; text-underline-offset: 3px; }
 .rail {
   width: var(--rail-w);
   min-height: 100vh;
-  background: var(--brand-grad);
+  background: linear-gradient(180deg, #FFFFFF 0%, #F5F2EB 100%);
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 24px 0;
+  padding: 26px 0;
   position: sticky; top: 0;
   flex-shrink: 0;
-  box-shadow: 4px 0 24px rgba(0,46,70,.08);
+  border-right: 1px solid var(--border);
   z-index: 2;
 }
 .rail-logo {
-  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  color: var(--text);
 }
-.rail-logo svg { width: 56px; height: 56px; }
+.rail-logo svg { width: 38px; height: 38px; display: block; }
 .rail-wordmark {
   font-family: 'Montserrat', sans-serif;
-  font-weight: 300;
-  font-size: 22px;
-  color: white;
-  letter-spacing: .06em;
+  font-weight: 600;
+  font-size: 17px;
+  color: var(--text);
+  letter-spacing: .04em;
   margin-top: 2px;
+}
+.rail-version {
+  font-size: 9px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--brand-2); background: var(--brand-cream);
+  padding: 2px 7px; border-radius: 999px;
 }
 .rail-spacer { flex: 1; }
 .rail-tag {
-  color: white;
-  opacity: .8;
+  color: var(--text-lo);
+  opacity: .85;
   font-size: 10px;
   letter-spacing: .3em;
   text-transform: uppercase;
   margin: 0;
   writing-mode: vertical-rl;
   transform: rotate(180deg);
-  font-weight: 500;
+  font-weight: 600;
 }
 
 @media (max-width: 720px) {
@@ -120,6 +126,7 @@ a:hover { text-decoration: underline; text-underline-offset: 3px; }
   border-bottom: 1px solid var(--border);
   background: var(--surface);
 }
+.topbar h1 { font-family: 'Fraunces', Georgia, serif; font-weight: 500; font-size: 23px; letter-spacing: -.01em; }
 .sub { margin: 4px 0 0; color: var(--text-lo); font-size: 12px; }
 .status-cluster { display: flex; gap: 10px; align-items: center; }
 .user-pill {
@@ -140,10 +147,10 @@ a:hover { text-decoration: underline; text-underline-offset: 3px; }
 }
 .user-logout:hover { background: var(--bad); color: white; }
 .user-pill.user-pill-guest {
-  background: linear-gradient(135deg, rgba(168,85,247,.10), rgba(216,180,254,.18));
-  border-color: #DDD6FE;
+  background: var(--brand-cream);
+  border-color: var(--border-2);
 }
-.user-pill.user-pill-guest .user-email { color: #6D28D9; font-weight: 600; }
+.user-pill.user-pill-guest .user-email { color: var(--brand-2); font-weight: 600; }
 @media (max-width: 720px) { .user-email { display: none; } }
 .badge {
   display: inline-flex; align-items: center; gap: 8px;
@@ -338,8 +345,8 @@ a:hover { text-decoration: underline; text-underline-offset: 3px; }
 }
 
 /* signal valence colors */
-.chip[data-sig="agreement"]    { --chip-color: #14B8A6; --chip-glow: rgba(20,184,166,.16); }
-.chip[data-sig="confidence"]   { --chip-color: #14B8A6; --chip-glow: rgba(20,184,166,.16); }
+.chip[data-sig="agreement"]    { --chip-color: #3E9B72; --chip-glow: rgba(62,155,114,.16); }
+.chip[data-sig="confidence"]   { --chip-color: #3E9B72; --chip-glow: rgba(62,155,114,.16); }
 .chip[data-sig="engagement"]   { --chip-color: var(--brand); --chip-glow: rgba(60,151,159,.18); }
 .chip[data-sig="interest"]     { --chip-color: #0EA5E9; --chip-glow: rgba(14,165,233,.16); }
 .chip[data-sig="confusion"]    { --chip-color: #D97706; --chip-glow: rgba(217,119,6,.16); }
