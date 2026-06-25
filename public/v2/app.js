@@ -128,6 +128,8 @@ const rSig = $('#rSig');
 const rDur = $('#rDur');
 const reportCloseBtn = $('#reportCloseBtn');
 const newSessionBtn = $('#newSessionBtn');
+const shareBtn = $('#shareBtn');
+const shareSheet = $('#shareSheet');
 
 // ============= Phase machine =============
 function setPhase(p) {
@@ -214,6 +216,220 @@ startBtn.addEventListener('click', startSession);
 stopBtn.addEventListener('click', stopSession);
 reportCloseBtn.addEventListener('click', () => setPhase('idle'));
 newSessionBtn.addEventListener('click', () => { setPhase('idle'); setTimeout(startSession, 200); });
+
+// ============= Compartilhar perfilamento =============
+const SHARE_URL = 'https://ego.sougni.com';
+const CUBE_SVG = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24.3 34'%3E%3Cpath d='M21.8086 12.7446V16.7974C21.7566 16.739 21.6954 16.6899 21.625 16.65L17.0741 14.0126C16.7956 13.853 16.4498 13.853 16.1713 14.0126L11.6419 16.6346C11.3909 16.7789 11.2379 17.0491 11.2379 17.3377V22.5756C11.2379 22.9041 11.4123 23.2081 11.6969 23.3708L16.1315 25.9375C16.2447 26.002 16.3672 26.045 16.4957 26.0603L13.169 27.9884C12.6885 28.2648 12.0917 28.2648 11.6113 27.9884L3.69394 23.3984C3.25018 23.1436 2.97168 22.6615 2.97168 22.1457V12.7937C2.97168 12.628 3.00534 12.4683 3.06655 12.3179L10.0045 16.1864C10.0351 16.2048 10.0688 16.2109 10.0994 16.2109C10.1698 16.2109 10.2371 16.1741 10.2708 16.1096C10.3259 16.0144 10.2892 15.8916 10.1943 15.8394L3.2716 11.9801C3.36035 11.8727 3.47053 11.7806 3.59601 11.7099L11.6847 7.02474C11.902 6.89886 12.1468 6.83438 12.3917 6.83438C12.6365 6.83438 12.8813 6.89579 13.0986 7.02474L21.2302 11.7345C21.5882 11.9433 21.8117 12.3271 21.8117 12.7416L21.8086 12.7446Z' fill='%231C1B18'/%3E%3Cpath d='M23.3939 9.86779L13.1415 3.92685C12.511 3.56149 11.7367 3.56149 11.1093 3.92685L0.912007 9.83709C0.345828 10.1625 0 10.7643 0 11.4183V23.2111C0 23.9511 0.394795 24.6388 1.03442 25.0072L11.0175 30.7947C11.7031 31.1907 12.5477 31.1907 13.2333 30.7947L23.7764 24.6879C24.0702 24.516 24.2508 24.1997 24.2508 23.8589V11.3569C24.2508 10.7428 23.9233 10.1779 23.3939 9.87087V9.86779ZM22.2034 22.6615C22.2034 23.0023 22.0198 23.3186 21.729 23.4905L13.3649 28.3354C13.065 28.5073 12.7252 28.5963 12.3886 28.5963C12.052 28.5963 11.7122 28.5104 11.4123 28.3354L3.49194 23.7453C2.92577 23.4168 2.57382 22.8089 2.57382 22.1488V12.7968C2.57382 12.2073 2.88904 11.6608 3.39707 11.3691L11.4858 6.68394C12.0428 6.36156 12.7375 6.36156 13.2945 6.68394L21.426 11.3937C21.9065 11.67 22.2034 12.1858 22.2034 12.7416V22.6585V22.6615Z' fill='%231C1B18'/%3E%3C/svg%3E";
+
+// Extrai o arquétipo (primeiro heading #) do markdown do perfilamento
+function reportArchetype() {
+  const md = state.lastReport?.markdown || '';
+  const m = md.match(/^#\s+(.+)$/m);
+  let t = m ? m[1] : '';
+  t = t.replace(/[#*`_]/g, '').replace(/\s+/g, ' ').trim();
+  // remove emoji de cabeçalho inicial tipo 🧠
+  t = t.replace(/^[\p{Emoji}‍️\s]+/u, '').trim();
+  return t || 'Meu perfilamento';
+}
+
+function buildShareText() {
+  const p = state.lastReport?.payload || {};
+  const arch = reportArchetype();
+  const cqi = p.cqi?.quality_index;
+  const eng = p.engagement_pct?.engaged;
+  let t = `🧠 Meu perfilamento no ego signals: "${arch}"`;
+  const bits = [];
+  if (cqi != null) bits.push(`CQI ${Math.round(cqi)}/100`);
+  if (eng != null) bits.push(`${eng}% engajado`);
+  if (bits.length) t += `\n${bits.join(' · ')}`;
+  t += `\n\nFaça o seu teste de 2 minutos 👇`;
+  return t;
+}
+
+// Desenha um card de resultado (creme/clay, logo Sougni) e retorna File PNG
+async function renderShareCard() {
+  try {
+    const W = 1080, H = 1350, P = 96;
+    const c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    const ctx = c.getContext('2d');
+    // fundo creme
+    ctx.fillStyle = '#FAF9F6'; ctx.fillRect(0, 0, W, H);
+    // glow clay no canto
+    const g = ctx.createRadialGradient(W - 120, 160, 40, W - 120, 160, 520);
+    g.addColorStop(0, 'rgba(194,107,67,.16)'); g.addColorStop(1, 'rgba(194,107,67,0)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    // borda interna
+    ctx.strokeStyle = '#ECE8DD'; ctx.lineWidth = 2;
+    ctx.strokeRect(40, 40, W - 80, H - 80);
+
+    try { await document.fonts.ready; } catch {}
+    const ui = "'Montserrat', system-ui, sans-serif";
+    const serif = "'Fraunces', Georgia, serif";
+
+    const p = state.lastReport?.payload || {};
+    const arch = reportArchetype();
+    const cqi = p.cqi?.quality_index != null ? Math.round(p.cqi.quality_index) : null;
+    const eng = p.engagement_pct?.engaged;
+    const sig = p.raw_signal_count;
+    const dur = p.duration_s != null ? `${Math.floor(p.duration_s/60)}m${p.duration_s%60}s` : null;
+
+    // eyebrow
+    ctx.fillStyle = '#A8542F';
+    ctx.font = `600 26px ${ui}`;
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('M E U   P E R F I L A M E N T O', P, 250);
+
+    // arquétipo (serif, wrap)
+    ctx.fillStyle = '#1C1B18';
+    let fs = arch.length > 42 ? 64 : 80;
+    ctx.font = `600 ${fs}px ${serif}`;
+    const maxW = W - P * 2;
+    const words = arch.split(' ');
+    let line = '', y = 250 + fs + 30; const lh = fs * 1.12; let lines = 0;
+    for (const w of words) {
+      const test = line ? line + ' ' + w : w;
+      if (ctx.measureText(test).width > maxW && line) {
+        ctx.fillText(line, P, y); y += lh; line = w; lines++;
+        if (lines >= 4) { line = line; break; }
+      } else line = test;
+    }
+    if (line) { ctx.fillText(line, P, y); y += lh; }
+
+    // CQI badge
+    y += 28;
+    if (cqi != null) {
+      const bw = 300, bh = 104, bx = P, by = y;
+      ctx.fillStyle = '#C26B43';
+      roundRect(ctx, bx, by, bw, bh, 22); ctx.fill();
+      // label "CQI" topo
+      ctx.fillStyle = 'rgba(255,255,255,.82)';
+      ctx.font = `700 22px ${ui}`;
+      ctx.fillText('C Q I', bx + 28, by + 38);
+      // número grande + /100
+      const numStr = String(cqi);
+      ctx.fillStyle = '#fff';
+      ctx.font = `800 52px ${ui}`;
+      ctx.fillText(numStr, bx + 28, by + 86);
+      const numW = ctx.measureText(numStr).width;
+      ctx.fillStyle = 'rgba(255,255,255,.85)';
+      ctx.font = `600 24px ${ui}`;
+      ctx.fillText('/100', bx + 28 + numW + 10, by + 86);
+      y += bh + 30;
+    }
+
+    // métricas
+    const metr = [];
+    if (eng != null) metr.push(`${eng}% engajado`);
+    if (sig != null) metr.push(`${sig} sinais`);
+    if (dur) metr.push(dur);
+    if (metr.length) {
+      ctx.fillStyle = '#4A4842';
+      ctx.font = `500 30px ${ui}`;
+      ctx.fillText(metr.join('   ·   '), P, y + 18);
+    }
+
+    // rodapé: logo Sougni + wordmark + CTA
+    const fy = H - 150;
+    ctx.strokeStyle = '#ECE8DD'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(P, fy - 40); ctx.lineTo(W - P, fy - 40); ctx.stroke();
+
+    ctx.fillStyle = '#1C1B18';
+    ctx.font = `700 40px ${ui}`;
+    ctx.fillText('ego signals', P + 70, fy + 14);
+    ctx.font = `500 26px ${ui}`;
+    ctx.fillStyle = '#6E6B62';
+    ctx.fillText('por Sougni · ego.sougni.com', P + 70, fy + 52);
+
+    // logo cubo
+    await new Promise((res) => {
+      const img = new Image();
+      img.onload = () => { try { ctx.drawImage(img, P, fy - 26, 48, 67); } catch {} res(); };
+      img.onerror = () => res();
+      img.src = CUBE_SVG;
+    });
+
+    const blob = await new Promise((res) => c.toBlob(res, 'image/png', 0.95));
+    if (!blob) return null;
+    return new File([blob], 'perfilamento-ego-signals.png', { type: 'image/png' });
+  } catch (e) {
+    console.warn('[share] card render falhou:', e.message);
+    return null;
+  }
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+async function shareReport() {
+  const text = buildShareText();
+  const fullText = `${text}\n${SHARE_URL}`;
+  if (shareBtn) { shareBtn.classList.add('loading'); shareBtn.disabled = true; }
+  try {
+    // 1) Compartilhar IMAGEM (card) — mais moderno, via menu nativo
+    let file = null;
+    try { file = await renderShareCard(); } catch {}
+    if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], text: fullText, title: 'Meu perfilamento — ego signals' });
+        return;
+      } catch (e) { if (e && e.name === 'AbortError') return; /* fall through */ }
+    }
+    // 2) Compartilhar TEXTO + link (menu nativo do sistema)
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: 'Meu perfilamento — ego signals', text, url: SHARE_URL });
+        return;
+      } catch (e) { if (e && e.name === 'AbortError') return; /* fall through */ }
+    }
+    // 3) Fallback: planilha de redes (sem Web Share API)
+    openShareSheet(text, SHARE_URL);
+  } finally {
+    if (shareBtn) { shareBtn.classList.remove('loading'); shareBtn.disabled = false; }
+  }
+}
+
+function openShareSheet(text, url) {
+  if (!shareSheet) return;
+  const enc = encodeURIComponent;
+  const full = `${text}\n${url}`;
+  const set = (id, href) => { const el = document.getElementById(id); if (el) el.href = href; };
+  set('shWhats', `https://wa.me/?text=${enc(full)}`);
+  set('shTg', `https://t.me/share/url?url=${enc(url)}&text=${enc(text)}`);
+  set('shX', `https://twitter.com/intent/tweet?text=${enc(text)}&url=${enc(url)}`);
+  set('shMail', `mailto:?subject=${enc('Meu perfilamento — ego signals')}&body=${enc(full)}`);
+  const copyBtn = document.getElementById('shCopy');
+  if (copyBtn) {
+    copyBtn.onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(full);
+        const lbl = document.getElementById('shCopyLabel');
+        if (lbl) { const prev = lbl.textContent; lbl.textContent = 'Copiado!'; setTimeout(() => lbl.textContent = prev, 1800); }
+      } catch {}
+    };
+  }
+  shareSheet.hidden = false;
+}
+
+if (shareBtn) shareBtn.addEventListener('click', shareReport);
+if (shareSheet) {
+  const closeBtn = document.getElementById('shareSheetClose');
+  if (closeBtn) closeBtn.addEventListener('click', () => { shareSheet.hidden = true; });
+  shareSheet.addEventListener('click', (e) => { if (e.target === shareSheet) shareSheet.hidden = true; });
+  shareSheet.querySelectorAll('a.share-opt').forEach(a => a.addEventListener('click', () => setTimeout(() => { shareSheet.hidden = true; }, 200)));
+}
+
+// hook de teste — só em localhost (zero impacto em produção)
+if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+  window.__egoShareTest = { showReport, shareReport, openShareSheet, renderShareCard, buildShareText };
+}
 
 async function startSession() {
   startBtn.disabled = true;
@@ -599,6 +815,7 @@ async function requestReport() {
 
 function showReport(payload, data) {
   setPhase('reporting');
+  state.lastReport = { markdown: data.markdown || '', payload };
   rCqi.textContent = payload.cqi?.quality_index != null ? Math.round(payload.cqi.quality_index) : '—';
   rEng.textContent = `${payload.engagement_pct.engaged}%`;
   rSig.textContent = String(payload.raw_signal_count);

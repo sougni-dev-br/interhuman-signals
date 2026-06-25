@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Montserrat:wght@300;400;500;600;700;800&display=swap" />
-  <link rel="stylesheet" href="styles.css?v=guest6" />
+  <link rel="stylesheet" href="styles.css?v=guest7" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24.3 34'%3E%3Cpath d='M21.8086 12.7446V16.7974C21.7566 16.739 21.6954 16.6899 21.625 16.65L17.0741 14.0126C16.7956 13.853 16.4498 13.853 16.1713 14.0126L11.6419 16.6346C11.3909 16.7789 11.2379 17.0491 11.2379 17.3377V22.5756C11.2379 22.9041 11.4123 23.2081 11.6969 23.3708L16.1315 25.9375C16.2447 26.002 16.3672 26.045 16.4957 26.0603L13.169 27.9884C12.6885 28.2648 12.0917 28.2648 11.6113 27.9884L3.69394 23.3984C3.25018 23.1436 2.97168 22.6615 2.97168 22.1457V12.7937C2.97168 12.628 3.00534 12.4683 3.06655 12.3179L10.0045 16.1864C10.0351 16.2048 10.0688 16.2109 10.0994 16.2109C10.1698 16.2109 10.2371 16.1741 10.2708 16.1096C10.3259 16.0144 10.2892 15.8916 10.1943 15.8394L3.2716 11.9801C3.36035 11.8727 3.47053 11.7806 3.59601 11.7099L11.6847 7.02474C11.902 6.89886 12.1468 6.83438 12.3917 6.83438C12.6365 6.83438 12.8813 6.89579 13.0986 7.02474L21.2302 11.7345C21.5882 11.9433 21.8117 12.3271 21.8117 12.7416L21.8086 12.7446Z' fill='%231C1B18'/%3E%3Cpath d='M23.3939 9.86779L13.1415 3.92685C12.511 3.56149 11.7367 3.56149 11.1093 3.92685L0.912007 9.83709C0.345828 10.1625 0 10.7643 0 11.4183V23.2111C0 23.9511 0.394795 24.6388 1.03442 25.0072L11.0175 30.7947C11.7031 31.1907 12.5477 31.1907 13.2333 30.7947L23.7764 24.6879C24.0702 24.516 24.2508 24.1997 24.2508 23.8589V11.3569C24.2508 10.7428 23.9233 10.1779 23.3939 9.87087V9.86779ZM22.2034 22.6615C22.2034 23.0023 22.0198 23.3186 21.729 23.4905L13.3649 28.3354C13.065 28.5073 12.7252 28.5963 12.3886 28.5963C12.052 28.5963 11.7122 28.5104 11.4123 28.3354L3.49194 23.7453C2.92577 23.4168 2.57382 22.8089 2.57382 22.1488V12.7968C2.57382 12.2073 2.88904 11.6608 3.39707 11.3691L11.4858 6.68394C12.0428 6.36156 12.7375 6.36156 13.2945 6.68394L21.426 11.3937C21.9065 11.67 22.2034 12.1858 22.2034 12.7416V22.6585V22.6615Z' fill='%231C1B18'/%3E%3C/svg%3E" />
 </head>
 <body data-phase="idle">
@@ -220,13 +220,34 @@
           <ol id="reportQList"></ol>
         </div>
         <div class="r-actions">
-          <button class="btn btn-primary" id="newSessionBtn">Nova sessão</button>
+          <button class="btn btn-share" id="shareBtn" type="button">
+            <svg class="share-ico" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>
+            <span>Compartilhar</span>
+          </button>
+          <button class="btn btn-ghost" id="newSessionBtn" type="button">Nova sessão</button>
         </div>
       </div>
     </div>
   </div>
 
-  <script src="config.js?v=guest5"></script>
+  <!-- Fallback share sheet (navegadores sem Web Share API) — fora dos overlays de fase -->
+  <div class="share-overlay" id="shareSheet" hidden>
+    <div class="share-card">
+      <div class="share-card-head">
+        <span>Compartilhar perfilamento</span>
+        <button class="share-card-close" id="shareSheetClose" type="button" aria-label="fechar">×</button>
+      </div>
+      <div class="share-grid">
+        <a class="share-opt" id="shWhats" target="_blank" rel="noopener"><span class="so-ico" style="background:#25D366">W</span>WhatsApp</a>
+        <a class="share-opt" id="shTg" target="_blank" rel="noopener"><span class="so-ico" style="background:#229ED9">T</span>Telegram</a>
+        <a class="share-opt" id="shX" target="_blank" rel="noopener"><span class="so-ico" style="background:#1C1B18">𝕏</span>X / Twitter</a>
+        <a class="share-opt" id="shMail"><span class="so-ico" style="background:#C26B43">@</span>E-mail</a>
+        <button class="share-opt" id="shCopy" type="button"><span class="so-ico" style="background:#6E6B62">⧉</span><span id="shCopyLabel">Copiar texto</span></button>
+      </div>
+    </div>
+  </div>
+
+  <script src="config.js?v=guest7"></script>
   <script>
     // ===== Auth gate (executa antes de carregar app.js) =====
     (function () {
@@ -247,6 +268,6 @@
       window.IH_CONFIG.userRole = auth.role || 'user';
     })();
   </script>
-  <script src="app.js?v=guest5" type="module"></script>
+  <script src="app.js?v=guest7" type="module"></script>
 </body>
 </html>
