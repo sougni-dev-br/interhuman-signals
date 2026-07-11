@@ -45,7 +45,7 @@ function pickQuestions(n = 5) {
 }
 
 // ============= Session config =============
-const QUESTION_MS = 20000;
+const QUESTION_MS = 25000;
 const QUESTIONS_N = 5;
 const FINALIZE_MS = 5000;       // flush window for late signals
 const AUDIO_SAMPLE_MS = 100;
