@@ -1,4 +1,6 @@
 # Render Blueprint — https://render.com/docs/blueprint-spec
+# Serviço real em produção: ego-backend (https://ego-backend-lerb.onrender.com)
+# Segredos ficam com sync:false → setados à mão no dashboard, nunca versionados.
 services:
   - type: web
     name: ego-backend
@@ -9,11 +11,23 @@ services:
     startCommand: node server.js
     healthCheckPath: /health
     envVars:
-      - key: INTERHUMAN_API_KEY
-        sync: false   # set manually in Render dashboard
-      - key: PASSCODE
+      # --- Secrets (setar no dashboard, sync:false) ---
+      - key: INTERHUMAN_API_KEY   # chave do upstream Interhuman (WS)
         sync: false
+      - key: TOKEN_SECRET         # assina os tokens HMAC de sessão — OBRIGATÓRIO
+        sync: false
+      - key: PASSCODE             # fallback WS legado (só servidor, rotacionado)
+        sync: false
+      - key: USERS                # "email1:senha1,email2:senha2" (login /auth)
+        sync: false
+      - key: ANTHROPIC_API_KEY    # perfilamento Claude; sem ela cai no rule-based
+        sync: false
+      # --- Config não-secreta ---
+      - key: ANTHROPIC_MODEL
+        value: claude-sonnet-4-6
       - key: ALLOWED_ORIGINS
         value: https://ego.sougni.com
+      - key: TOKEN_TTL_HOURS
+        value: "24"
       - key: NODE_VERSION
         value: "20"
