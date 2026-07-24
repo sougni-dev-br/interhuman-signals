@@ -12,6 +12,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import Anthropic from '@anthropic-ai/sdk';
+import rateLimit from 'express-rate-limit';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -28,7 +29,13 @@ const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
 // TOKEN_SECRET assina os tokens HMAC; default deriva do PASSCODE pra não ter
 // que setar mais uma env var.
 const USERS = parseUsers(process.env.USERS || '');
-const TOKEN_SECRET = process.env.TOKEN_SECRET || PASSCODE || 'change-me';
+// TOKEN_SECRET assina os tokens HMAC. SEM fallback inseguro: se nem TOKEN_SECRET
+// nem PASSCODE estiverem no ambiente, o processo aborta (tokens seriam forjáveis).
+if (!process.env.TOKEN_SECRET && !process.env.PASSCODE) {
+  console.error('[fatal] defina TOKEN_SECRET (recomendado) ou PASSCODE no ambiente — sem isso qualquer um poderia forjar tokens de sessão.');
+  process.exit(1);
+}
+const TOKEN_SECRET = process.env.TOKEN_SECRET || PASSCODE;
 const TOKEN_TTL_HOURS = Number(process.env.TOKEN_TTL_HOURS || 24);
 
 function parseUsers(raw) {
@@ -68,6 +75,16 @@ function verifyToken(token) {
   } catch { return null; }
 }
 
+// ============= Logging estruturado (JSON por linha) =============
+function logEvent(type, data = {}) {
+  try { console.log(JSON.stringify({ ts: new Date().toISOString(), type, ...data })); }
+  catch { console.log(JSON.stringify({ ts: new Date().toISOString(), type })); }
+}
+function clientIp(req) {
+  const xff = (req.headers?.['x-forwarded-for'] || '').split(',')[0].trim();
+  return xff || req.socket?.remoteAddress || req.connection?.remoteAddress || 'unknown';
+}
+
 if (!API_KEY) {
   console.error('[fatal] INTERHUMAN_API_KEY ausente em .env');
   process.exit(1);
@@ -75,9 +92,60 @@ if (!API_KEY) {
 
 const anthropic = ANTHROPIC_API_KEY ? new Anthropic({ apiKey: ANTHROPIC_API_KEY }) : null;
 
+// Chamada ao Claude com timeout duro (AbortController). Se estourar, lança —
+// e o endpoint que chama cai no ruleBasedReport com source 'timeout'.
+async function claudeCreate(params, ms = 30000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await anthropic.messages.create(params, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const app = express();
+// Render/Cloudflare ficam na frente — confiar no primeiro proxy pra ler o IP
+// real (X-Forwarded-For) e o express-rate-limit funcionar corretamente.
+app.set('trust proxy', 1);
 app.use(express.json({ limit: '512kb' }));
 app.use(express.static(path.join(__dirname, 'public')));
+
+// ============= Rate limiting =============
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,           // 15 min
+  max: 10,                             // 10 tentativas por IP
+  skipSuccessfulRequests: true,        // logins OK não contam
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    logEvent('ratelimit', { route: '/auth', ip: clientIp(req) });
+    res.status(429).json({ error: 'rate_limit_exceeded', retryAfter: 15 * 60 });
+  },
+});
+const reportLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,           // 1 hora
+  max: 5,                              // 5 reports por IP/hora (custo Claude)
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    logEvent('ratelimit', { route: 'report', ip: clientIp(req) });
+    res.status(429).json({ error: 'rate_limit_exceeded', retryAfter: 60 * 60 });
+  },
+});
+
+// ============= Auth obrigatória (token HMAC válido) =============
+function requireToken(req, res, next) {
+  const auth = req.headers.authorization || '';
+  const m = auth.match(/^Bearer\s+(.+)$/);
+  const payload = m ? verifyToken(m[1]) : null;
+  if (!payload) {
+    logEvent('auth.reject', { route: req.path, ip: clientIp(req) });
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  req.user = payload;   // { email, exp, role }
+  next();
+}
 app.get('/health', (_req, res) => res.json({
   ok: true,
   upstream: UPSTREAM_URL,
@@ -101,7 +169,7 @@ app.options('/auth', (req, res) => {
   });
   res.status(204).end();
 });
-app.post('/auth', (req, res) => {
+app.post('/auth', authLimiter, (req, res) => {
   if (!checkOrigin(req)) return res.status(403).json({ error: 'origin not allowed' });
   res.set('Access-Control-Allow-Origin', req.headers.origin || '*');
 
@@ -112,6 +180,7 @@ app.post('/auth', (req, res) => {
     const exp = Math.floor(Date.now() / 1000) + 3600;  // 1h
     const guestEmail = 'visitante@ego.local';
     const token = signToken({ email: guestEmail, exp, role: 'guest' });
+    logEvent('auth.success', { role: 'guest', ip: clientIp(req) });
     return res.json({ ok: true, token, email: guestEmail, exp, role: 'guest' });
   }
 
@@ -119,17 +188,19 @@ app.post('/auth', (req, res) => {
   if (!USERS.size) return res.status(503).json({ error: 'auth não configurado no servidor (USERS vazio)' });
 
   const stored = USERS.get(String(email).trim().toLowerCase());
-  // constant-time compare se ambos existem
-  if (!stored || !crypto.timingSafeEqual(
-    Buffer.from(stored.padEnd(64, '\0')),
-    Buffer.from(String(password).padEnd(64, '\0')).slice(0, 64),
-  )) {
+  // Comparação constant-time: AMBOS os lados sempre com exatamente 64 bytes,
+  // então timingSafeEqual nunca lança (senha vazia ou > 64 chars → 401 limpo).
+  const fixed64 = (s) => { const b = Buffer.alloc(64); Buffer.from(String(s), 'utf8').copy(b, 0, 0, 64); return b; };
+  const ok = Boolean(stored) && crypto.timingSafeEqual(fixed64(stored), fixed64(password));
+  if (!ok) {
+    logEvent('auth.fail', { ip: clientIp(req), email: String(email).slice(0, 80) });
     return res.status(401).json({ error: 'email ou senha inválidos' });
   }
 
   const ttlHours = rememberMe ? 24 * 30 : TOKEN_TTL_HOURS;
   const exp = Math.floor(Date.now() / 1000) + ttlHours * 3600;
   const token = signToken({ email: email.toLowerCase(), exp, role: 'user' });
+  logEvent('auth.success', { role: 'user', email: email.toLowerCase(), ip: clientIp(req) });
   return res.json({ ok: true, token, email: email.toLowerCase(), exp, role: 'user' });
 });
 
@@ -152,32 +223,32 @@ app.options('/report', (req, res) => {
   res.set({
     'Access-Control-Allow-Origin': req.headers.origin || '*',
     'Access-Control-Allow-Methods': 'POST',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Max-Age': '600',
   });
   res.status(204).end();
 });
 
-app.post('/report', async (req, res) => {
+app.post('/report', reportLimiter, requireToken, async (req, res) => {
   if (!checkOrigin(req)) {
     return res.status(403).json({ error: 'origin not allowed' });
   }
   res.set('Access-Control-Allow-Origin', req.headers.origin || '*');
 
+  const t0 = Date.now();
   const payload = req.body || {};
-  if (!anthropic) {
-    return res.json({ markdown: ruleBasedReport(payload), source: 'fallback-no-ai' });
-  }
+  const respond = (body) => {
+    logEvent('report.request', { route: '/report', role: req.user?.role, ip: clientIp(req), bytes: JSON.stringify(payload).length, latency_ms: Date.now() - t0, source: body.source });
+    return res.json(body);
+  };
+  if (!anthropic) return respond({ markdown: ruleBasedReport(payload), source: 'fallback-no-ai' });
   try {
     const md = await callClaude(payload);
-    return res.json({ markdown: md, source: 'claude', model: ANTHROPIC_MODEL });
+    return respond({ markdown: md, source: 'claude', model: ANTHROPIC_MODEL });
   } catch (e) {
-    console.error('[report] Claude err:', e.message);
-    return res.json({
-      markdown: ruleBasedReport(payload),
-      source: 'fallback-error',
-      error: e.message,
-    });
+    const timedOut = e.name === 'AbortError' || /abort/i.test(e.message || '');
+    logEvent('claude.error', { route: '/report', timedOut, message: e.message });
+    return respond({ markdown: ruleBasedReport(payload), source: timedOut ? 'timeout' : 'fallback-error', error: e.message });
   }
 });
 
@@ -224,7 +295,7 @@ ${JSON.stringify(payload, null, 2)}
 
 Produz o perfilamento agora, seguindo a estrutura exata.`;
 
-  const resp = await anthropic.messages.create({
+  const resp = await claudeCreate({
     model: ANTHROPIC_MODEL,
     max_tokens: 1400,
     temperature: 0.7,
@@ -240,36 +311,32 @@ app.options('/v2/report', (req, res) => {
   res.set({
     'Access-Control-Allow-Origin': req.headers.origin || '*',
     'Access-Control-Allow-Methods': 'POST',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   });
   res.status(204).end();
 });
-app.post('/v2/report', async (req, res) => {
+app.post('/v2/report', reportLimiter, requireToken, async (req, res) => {
   if (!checkOrigin(req)) return res.status(403).json({ error: 'origin not allowed' });
   res.set('Access-Control-Allow-Origin', req.headers.origin || '*');
 
+  const t0 = Date.now();
   const payload = req.body || {};
-  if (!anthropic) {
-    return res.json({ markdown: ruleBasedReport(payload), source: 'fallback-no-ai' });
-  }
+  const respond = (body) => {
+    logEvent('report.request', { route: '/v2/report', role: req.user?.role, ip: clientIp(req), bytes: JSON.stringify(payload).length, latency_ms: Date.now() - t0, source: body.source });
+    return res.json(body);
+  };
+  if (!anthropic) return respond({ markdown: ruleBasedReport(payload), source: 'fallback-no-ai' });
 
   // Enriquecer payload da sessão com derived metrics ANTES de passar pro Claude
   const enriched = enrichSessionPayload(payload);
 
   try {
     const md = await callClaudeV2(enriched);
-    return res.json({
-      markdown: md,
-      source: 'claude-v2',
-      model: ANTHROPIC_MODEL,
-    });
+    return respond({ markdown: md, source: 'claude-v2', model: ANTHROPIC_MODEL });
   } catch (e) {
-    console.error('[v2/report] Claude err:', e.message);
-    return res.json({
-      markdown: ruleBasedReport(payload),
-      source: 'fallback-error',
-      error: e.message,
-    });
+    const timedOut = e.name === 'AbortError' || /abort/i.test(e.message || '');
+    logEvent('claude.error', { route: '/v2/report', timedOut, message: e.message });
+    return respond({ markdown: ruleBasedReport(payload), source: timedOut ? 'timeout' : 'fallback-error', error: e.message });
   }
 });
 
@@ -369,7 +436,7 @@ ${JSON.stringify(payload, null, 2)}
 
 Produz o perfilamento agora.`;
 
-  const resp = await anthropic.messages.create({
+  const resp = await claudeCreate({
     model: ANTHROPIC_MODEL,
     max_tokens: 2400,
     temperature: 0.7,
@@ -417,6 +484,7 @@ wss.on('connection', (client, req) => {
   // Origin allowlist first (cheapest check)
   if (ALLOWED_ORIGINS.length && !ALLOWED_ORIGINS.includes(origin)) {
     log(clientId, 'REJECT origin', { origin });
+    logEvent('ws.reject', { clientId, reason: 'origin', origin });
     rejectClient(client, 4403, 'origin_not_allowed', 'origin não permitido');
     return;
   }
@@ -430,11 +498,13 @@ wss.on('connection', (client, req) => {
 
   if (!authedBy && (PASSCODE || USERS.size)) {
     log(clientId, 'REJECT auth', { origin, hadToken: Boolean(t), hadPasscode: Boolean(p) });
+    logEvent('ws.reject', { clientId, reason: 'auth', hadToken: Boolean(t) });
     rejectClient(client, 4401, 'invalid_credentials', 'token ou passcode inválido');
     return;
   }
 
   log(clientId, 'browser conectado', { origin: origin || '(none)', authedBy, authedEmail });
+  logEvent('ws.connect', { clientId, authedBy, origin: origin || null });
 
   const upstream = new WebSocket(UPSTREAM_URL, {
     headers: { Authorization: `Bearer ${API_KEY}` },
@@ -444,8 +514,19 @@ wss.on('connection', (client, req) => {
   let upstreamOpen = false;
   const pendingFromClient = [];
 
+  // Circuit breaker: se o upstream Interhuman não abrir em 10s, fecha o cliente
+  // com 4504 (evita ficar pendurado indefinidamente).
+  const upstreamTimeout = setTimeout(() => {
+    if (!upstreamOpen) {
+      logEvent('ws.upstream_timeout', { clientId });
+      rejectClient(client, 4504, 'upstream_timeout', 'upstream não respondeu a tempo');
+      try { upstream.terminate(); } catch {}
+    }
+  }, 10000);
+
   upstream.on('open', () => {
     upstreamOpen = true;
+    clearTimeout(upstreamTimeout);
     log(clientId, 'upstream Interhuman OPEN');
     safeSend(client, JSON.stringify({ type: 'proxy.upstream_open' }));
     for (const msg of pendingFromClient) upstream.send(msg);
@@ -458,6 +539,7 @@ wss.on('connection', (client, req) => {
   });
 
   upstream.on('close', (code, reason) => {
+    clearTimeout(upstreamTimeout);
     log(clientId, 'upstream CLOSE', code, reason?.toString?.());
     safeSend(client, JSON.stringify({
       type: 'proxy.upstream_close',
@@ -481,6 +563,7 @@ wss.on('connection', (client, req) => {
   });
 
   client.on('close', (code, reason) => {
+    clearTimeout(upstreamTimeout);
     log(clientId, 'browser CLOSE', code, reason?.toString?.());
     try { upstream.close(); } catch {}
   });
