@@ -234,15 +234,6 @@ app.post('/auth', authLimiter, (req, res) => {
   return res.json({ ok: true, token, email: email.toLowerCase(), exp, role: 'user' });
 });
 
-// Helper — extract token from Authorization header and check if it's a guest
-function getTokenRole(req) {
-  const auth = req.headers.authorization || '';
-  const m = auth.match(/^Bearer\s+(.+)$/);
-  if (!m) return null;
-  const payload = verifyToken(m[1]);
-  return payload?.role || 'user';
-}
-
 // ============= /report — gera perfilamento via Claude =============
 function checkOrigin(req) {
   if (!ALLOWED_ORIGINS.length) return true;
