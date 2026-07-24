@@ -4,7 +4,8 @@
 //   Browser <--ws--> THIS PROXY <--wss--> api.interhuman.ai/v1/stream/analyze
 //   Browser ---POST /report---> THIS PROXY ----> Anthropic Claude (perfilamento)
 
-import 'dotenv/config';
+import dotenv from 'dotenv';
+dotenv.config({ quiet: true }); // dotenv 17: quiet suprime o banner promocional no boot
 import express from 'express';
 import http from 'node:http';
 import path from 'node:path';
@@ -23,7 +24,9 @@ const PORT = Number(process.env.PORT || 3737);
 const UPSTREAM_URL = 'wss://api.interhuman.ai/v1/stream/analyze';
 const PASSCODE = process.env.PASSCODE || '';
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
-  .split(',').map(s => s.trim()).filter(Boolean);
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
 
@@ -34,7 +37,9 @@ const USERS = parseUsers(process.env.USERS || '');
 // TOKEN_SECRET assina os tokens HMAC. SEM fallback inseguro: se nem TOKEN_SECRET
 // nem PASSCODE estiverem no ambiente, o processo aborta (tokens seriam forjáveis).
 if (!process.env.TOKEN_SECRET && !process.env.PASSCODE) {
-  console.error('[fatal] defina TOKEN_SECRET (recomendado) ou PASSCODE no ambiente — sem isso qualquer um poderia forjar tokens de sessão.');
+  console.error(
+    '[fatal] defina TOKEN_SECRET (recomendado) ou PASSCODE no ambiente — sem isso qualquer um poderia forjar tokens de sessão.',
+  );
   process.exit(1);
 }
 const TOKEN_SECRET = process.env.TOKEN_SECRET || PASSCODE;
@@ -50,7 +55,11 @@ function parseUsers(raw) {
 }
 
 function b64url(buf) {
-  return Buffer.from(buf).toString('base64').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+  return Buffer.from(buf)
+    .toString('base64')
+    .replace(/=+$/, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
 }
 function b64urlDecode(s) {
   s = s.replace(/-/g, '+').replace(/_/g, '/');
@@ -68,19 +77,25 @@ function verifyToken(token) {
   if (!body || !sig) return null;
   const expectedSig = b64url(crypto.createHmac('sha256', TOKEN_SECRET).update(body).digest());
   // constant-time comparison
-  const a = Buffer.from(sig); const b = Buffer.from(expectedSig);
+  const a = Buffer.from(sig);
+  const b = Buffer.from(expectedSig);
   if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
   try {
     const payload = JSON.parse(b64urlDecode(body).toString('utf8'));
     if (payload.exp && Date.now() / 1000 > payload.exp) return null;
     return payload;
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 // ============= Logging estruturado (JSON por linha) =============
 function logEvent(type, data = {}) {
-  try { console.log(JSON.stringify({ ts: new Date().toISOString(), type, ...data })); }
-  catch { console.log(JSON.stringify({ ts: new Date().toISOString(), type })); }
+  try {
+    console.log(JSON.stringify({ ts: new Date().toISOString(), type, ...data }));
+  } catch {
+    console.log(JSON.stringify({ ts: new Date().toISOString(), type }));
+  }
 }
 function clientIp(req) {
   const xff = (req.headers?.['x-forwarded-for'] || '').split(',')[0].trim();
@@ -116,36 +131,46 @@ app.set('trust proxy', 1);
 // backend Render, e os scripts/estilos inline (auth gate, handlers). Webcam e
 // card de compartilhamento usam blob:/data:. upgrade-insecure-requests fica
 // desligado pra não estourar o dev em http://localhost.
-const BACKEND_ORIGIN = (process.env.PUBLIC_BACKEND_ORIGIN || 'https://ego-backend-lerb.onrender.com').replace(/\/$/, '');
+const BACKEND_ORIGIN = (
+  process.env.PUBLIC_BACKEND_ORIGIN || 'https://ego-backend-lerb.onrender.com'
+).replace(/\/$/, '');
 const BACKEND_WSS = BACKEND_ORIGIN.replace(/^http/, 'ws');
-app.use(helmet({
-  contentSecurityPolicy: {
-    useDefaults: true,
-    directives: {
-      defaultSrc: ["'self'"],
-      baseUri: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"],
-      styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
-      fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
-      imgSrc: ["'self'", 'data:', 'blob:'],
-      mediaSrc: ["'self'", 'blob:'],
-      connectSrc: ["'self'", BACKEND_ORIGIN, BACKEND_WSS, 'ws://localhost:*', 'http://localhost:*'],
-      objectSrc: ["'none'"],
-      frameAncestors: ["'self'"],
-      upgradeInsecureRequests: null,
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: {
+        defaultSrc: ["'self'"],
+        baseUri: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+        fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
+        imgSrc: ["'self'", 'data:', 'blob:'],
+        mediaSrc: ["'self'", 'blob:'],
+        connectSrc: [
+          "'self'",
+          BACKEND_ORIGIN,
+          BACKEND_WSS,
+          'ws://localhost:*',
+          'http://localhost:*',
+        ],
+        objectSrc: ["'none'"],
+        frameAncestors: ["'self'"],
+        upgradeInsecureRequests: null,
+      },
     },
-  },
-  crossOriginEmbedderPolicy: false,   // não exigir COEP (quebraria embeds/fontes)
-}));
+    crossOriginEmbedderPolicy: false, // não exigir COEP (quebraria embeds/fontes)
+  }),
+);
 
 app.use(express.json({ limit: '512kb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ============= Rate limiting =============
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,           // 15 min
-  max: 10,                             // 10 tentativas por IP
-  skipSuccessfulRequests: true,        // logins OK não contam
+  windowMs: 15 * 60 * 1000, // 15 min
+  max: 10, // 10 tentativas por IP
+  skipSuccessfulRequests: true, // logins OK não contam
   standardHeaders: true,
   legacyHeaders: false,
   handler: (req, res) => {
@@ -154,8 +179,8 @@ const authLimiter = rateLimit({
   },
 });
 const reportLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,           // 1 hora
-  max: 5,                              // 5 reports por IP/hora (custo Claude)
+  windowMs: 60 * 60 * 1000, // 1 hora
+  max: 5, // 5 reports por IP/hora (custo Claude)
   standardHeaders: true,
   legacyHeaders: false,
   handler: (req, res) => {
@@ -173,21 +198,23 @@ function requireToken(req, res, next) {
     logEvent('auth.reject', { route: req.path, ip: clientIp(req) });
     return res.status(401).json({ error: 'unauthorized' });
   }
-  req.user = payload;   // { email, exp, role }
+  req.user = payload; // { email, exp, role }
   next();
 }
-app.get('/health', (_req, res) => res.json({
-  ok: true,
-  upstream: UPSTREAM_URL,
-  passcodeRequired: Boolean(PASSCODE),
-  originsAllowed: ALLOWED_ORIGINS,
-  aiReportEnabled: Boolean(ANTHROPIC_API_KEY),
-  aiModel: ANTHROPIC_API_KEY ? ANTHROPIC_MODEL : null,
-  authEnabled: USERS.size > 0,
-  userCount: USERS.size,
-  guestEnabled: true,
-  v2Endpoints: ['/v2/report'],
-}));
+app.get('/health', (_req, res) =>
+  res.json({
+    ok: true,
+    upstream: UPSTREAM_URL,
+    passcodeRequired: Boolean(PASSCODE),
+    originsAllowed: ALLOWED_ORIGINS,
+    aiReportEnabled: Boolean(ANTHROPIC_API_KEY),
+    aiModel: ANTHROPIC_API_KEY ? ANTHROPIC_MODEL : null,
+    authEnabled: USERS.size > 0,
+    userCount: USERS.size,
+    guestEnabled: true,
+    v2Endpoints: ['/v2/report'],
+  }),
+);
 
 // ============= /auth — login com email + senha =============
 app.options('/auth', (req, res) => {
@@ -207,7 +234,7 @@ app.post('/auth', authLimiter, (req, res) => {
 
   // GUEST mode — token sem credencial, TTL 1h, role=guest
   if (guest === true) {
-    const exp = Math.floor(Date.now() / 1000) + 3600;  // 1h
+    const exp = Math.floor(Date.now() / 1000) + 3600; // 1h
     const guestEmail = 'visitante@ego.local';
     const token = signToken({ email: guestEmail, exp, role: 'guest' });
     logEvent('auth.success', { role: 'guest', ip: clientIp(req) });
@@ -215,12 +242,17 @@ app.post('/auth', authLimiter, (req, res) => {
   }
 
   if (!email || !password) return res.status(400).json({ error: 'email e senha são obrigatórios' });
-  if (!USERS.size) return res.status(503).json({ error: 'auth não configurado no servidor (USERS vazio)' });
+  if (!USERS.size)
+    return res.status(503).json({ error: 'auth não configurado no servidor (USERS vazio)' });
 
   const stored = USERS.get(String(email).trim().toLowerCase());
   // Comparação constant-time: AMBOS os lados sempre com exatamente 64 bytes,
   // então timingSafeEqual nunca lança (senha vazia ou > 64 chars → 401 limpo).
-  const fixed64 = (s) => { const b = Buffer.alloc(64); Buffer.from(String(s), 'utf8').copy(b, 0, 0, 64); return b; };
+  const fixed64 = (s) => {
+    const b = Buffer.alloc(64);
+    Buffer.from(String(s), 'utf8').copy(b, 0, 0, 64);
+    return b;
+  };
   const ok = Boolean(stored) && crypto.timingSafeEqual(fixed64(stored), fixed64(password));
   if (!ok) {
     logEvent('auth.fail', { ip: clientIp(req), email: String(email).slice(0, 80) });
@@ -255,25 +287,29 @@ function corsAllowOrigin(req) {
 // opcionais) pra não rejeitar payload legítimo que evolua, mas trava lixo:
 // precisa ser objeto, per_question array capado (anti-abuso), tipos corretos
 // quando presentes. Payload inválido NÃO vai pro Claude (economia + segurança).
-const perQuestionSchema = z.object({
-  idx: z.number().optional(),
-  question: z.string().max(2000).optional(),
-  duration_s: z.number().optional(),
-  audio_activity: z.number().optional(),
-  really_answered: z.boolean().optional(),
-  signals: z.array(z.any()).max(500).optional(),
-  engagement_changes: z.array(z.any()).max(2000).optional(),
-}).passthrough();
+const perQuestionSchema = z
+  .object({
+    idx: z.number().optional(),
+    question: z.string().max(2000).optional(),
+    duration_s: z.number().optional(),
+    audio_activity: z.number().optional(),
+    really_answered: z.boolean().optional(),
+    signals: z.array(z.any()).max(500).optional(),
+    engagement_changes: z.array(z.any()).max(2000).optional(),
+  })
+  .passthrough();
 
-const reportPayloadSchema = z.object({
-  duration_s: z.number().nonnegative().optional(),
-  cqi: z.any().optional(),
-  cqi_timeline_points: z.number().optional(),
-  engagement_pct: z.any().optional(),
-  top_signals: z.array(z.any()).max(100).optional(),
-  per_question: z.array(perQuestionSchema).max(50).optional(),
-  raw_signal_count: z.number().optional(),
-}).passthrough();
+const reportPayloadSchema = z
+  .object({
+    duration_s: z.number().nonnegative().optional(),
+    cqi: z.any().optional(),
+    cqi_timeline_points: z.number().optional(),
+    engagement_pct: z.any().optional(),
+    top_signals: z.array(z.any()).max(100).optional(),
+    per_question: z.array(perQuestionSchema).max(50).optional(),
+    raw_signal_count: z.number().optional(),
+  })
+  .passthrough();
 
 app.options('/report', (req, res) => {
   res.set({
@@ -294,7 +330,14 @@ app.post('/report', reportLimiter, requireToken, async (req, res) => {
   const t0 = Date.now();
   const payload = req.body || {};
   const respond = (body) => {
-    logEvent('report.request', { route: '/report', role: req.user?.role, ip: clientIp(req), bytes: JSON.stringify(payload).length, latency_ms: Date.now() - t0, source: body.source });
+    logEvent('report.request', {
+      route: '/report',
+      role: req.user?.role,
+      ip: clientIp(req),
+      bytes: JSON.stringify(payload).length,
+      latency_ms: Date.now() - t0,
+      source: body.source,
+    });
     return res.json(body);
   };
   if (!anthropic) return respond({ markdown: ruleBasedReport(payload), source: 'fallback-no-ai' });
@@ -304,7 +347,11 @@ app.post('/report', reportLimiter, requireToken, async (req, res) => {
   } catch (e) {
     const timedOut = e.name === 'AbortError' || /abort/i.test(e.message || '');
     logEvent('claude.error', { route: '/report', timedOut, message: e.message });
-    return respond({ markdown: ruleBasedReport(payload), source: timedOut ? 'timeout' : 'fallback-error', error: e.message });
+    return respond({
+      markdown: ruleBasedReport(payload),
+      source: timedOut ? 'timeout' : 'fallback-error',
+      error: e.message,
+    });
   }
 });
 
@@ -358,7 +405,7 @@ Produz o perfilamento agora, seguindo a estrutura exata.`;
     system,
     messages: [{ role: 'user', content: user }],
   });
-  const text = resp.content.find(c => c.type === 'text')?.text || '';
+  const text = resp.content.find((c) => c.type === 'text')?.text || '';
   return text.trim();
 }
 
@@ -378,17 +425,30 @@ app.post('/v2/report', reportLimiter, requireToken, async (req, res) => {
   const t0 = Date.now();
   const payload = req.body || {};
   const respond = (body) => {
-    logEvent('report.request', { route: '/v2/report', role: req.user?.role, ip: clientIp(req), bytes: JSON.stringify(payload).length, latency_ms: Date.now() - t0, source: body.source });
+    logEvent('report.request', {
+      route: '/v2/report',
+      role: req.user?.role,
+      ip: clientIp(req),
+      bytes: JSON.stringify(payload).length,
+      latency_ms: Date.now() - t0,
+      source: body.source,
+    });
     return res.json(body);
   };
 
   // Valida schema ANTES de qualquer processamento — payload podre não chega ao Claude.
   const parsed = reportPayloadSchema.safeParse(payload);
   if (!parsed.success) {
-    logEvent('report.invalid', { route: '/v2/report', ip: clientIp(req), issues: parsed.error.issues.length });
+    logEvent('report.invalid', {
+      route: '/v2/report',
+      ip: clientIp(req),
+      issues: parsed.error.issues.length,
+    });
     return res.status(400).json({
       error: 'invalid_payload',
-      details: parsed.error.issues.slice(0, 10).map(i => ({ path: i.path.join('.'), message: i.message })),
+      details: parsed.error.issues
+        .slice(0, 10)
+        .map((i) => ({ path: i.path.join('.'), message: i.message })),
     });
   }
 
@@ -403,7 +463,11 @@ app.post('/v2/report', reportLimiter, requireToken, async (req, res) => {
   } catch (e) {
     const timedOut = e.name === 'AbortError' || /abort/i.test(e.message || '');
     logEvent('claude.error', { route: '/v2/report', timedOut, message: e.message });
-    return respond({ markdown: ruleBasedReport(payload), source: timedOut ? 'timeout' : 'fallback-error', error: e.message });
+    return respond({
+      markdown: ruleBasedReport(payload),
+      source: timedOut ? 'timeout' : 'fallback-error',
+      error: e.message,
+    });
   }
 });
 
@@ -415,8 +479,8 @@ function enrichSessionPayload(p) {
   if (p.top_signals && p.per_question) {
     const probMap = new Map();
     const probWeights = { low: 1, medium: 2, high: 3 };
-    for (const q of (p.per_question || [])) {
-      for (const sig of (q.signals || [])) {
+    for (const q of p.per_question || []) {
+      for (const sig of q.signals || []) {
         const probs = sig.probabilities || [];
         const sum = probs.reduce((s, x) => s + (probWeights[x] || 0), 0);
         if (!probMap.has(sig.type)) probMap.set(sig.type, { sum: 0, n: 0 });
@@ -425,26 +489,33 @@ function enrichSessionPayload(p) {
         e.n += probs.length;
       }
     }
-    out.top_signals = p.top_signals.map(s => {
+    out.top_signals = p.top_signals.map((s) => {
       const m = probMap.get(s.type);
       return {
         ...s,
-        avg_intensity: m && m.n ? Math.round(m.sum / m.n * 100) / 100 : null,  // 1=low 2=med 3=high
+        avg_intensity: m && m.n ? Math.round((m.sum / m.n) * 100) / 100 : null, // 1=low 2=med 3=high
       };
     });
   }
 
   // Padrão por pergunta
   if (p.per_question) {
-    out.questions_answered = p.per_question.filter(q => q.really_answered).length;
-    out.avg_audio_activity = Math.round(
-      p.per_question.reduce((s, q) => s + (q.audio_activity || 0), 0) / Math.max(1, p.per_question.length) * 100
-    ) / 100;
+    out.questions_answered = p.per_question.filter((q) => q.really_answered).length;
+    out.avg_audio_activity =
+      Math.round(
+        (p.per_question.reduce((s, q) => s + (q.audio_activity || 0), 0) /
+          Math.max(1, p.per_question.length)) *
+          100,
+      ) / 100;
     // Pergunta mais silenciosa, mais falada, com mais sinais
-    const sorted = [...p.per_question].sort((a, b) => (a.audio_activity || 0) - (b.audio_activity || 0));
+    const sorted = [...p.per_question].sort(
+      (a, b) => (a.audio_activity || 0) - (b.audio_activity || 0),
+    );
     out.most_silent_question = sorted[0]?.idx;
     out.most_talkative_question = sorted[sorted.length - 1]?.idx;
-    const bySignalsCount = [...p.per_question].sort((a, b) => (b.signals?.length || 0) - (a.signals?.length || 0));
+    const bySignalsCount = [...p.per_question].sort(
+      (a, b) => (b.signals?.length || 0) - (a.signals?.length || 0),
+    );
     out.most_reactive_question = bySignalsCount[0]?.idx;
   }
 
@@ -510,29 +581,29 @@ Produz o perfilamento agora.`;
     system,
     messages: [{ role: 'user', content: user }],
   });
-  return (resp.content.find(c => c.type === 'text')?.text || '').trim();
+  return (resp.content.find((c) => c.type === 'text')?.text || '').trim();
 }
 
 function ruleBasedReport(p) {
-  const top = (p.top_signals?.[0]?.type) || 'sinal indeterminado';
+  const top = p.top_signals?.[0]?.type || 'sinal indeterminado';
   const topCount = p.top_signals?.[0]?.count || 0;
   const engPct = p.engagement_pct?.engaged ?? 0;
   const cqi = p.cqi?.quality_index != null ? Math.round(p.cqi.quality_index) : '—';
-  const answered = (p.per_question || []).filter(q => q.really_answered).length;
+  const answered = (p.per_question || []).filter((q) => q.really_answered).length;
   const dims = p.cqi || {};
-  const topDim = ['clarity','authority','energy','rapport','learning']
-    .filter(d => dims[d] != null)
-    .sort((a,b) => (dims[b] ?? 0) - (dims[a] ?? 0))[0];
+  const topDim = ['clarity', 'authority', 'energy', 'rapport', 'learning']
+    .filter((d) => dims[d] != null)
+    .sort((a, b) => (dims[b] ?? 0) - (dims[a] ?? 0))[0];
 
   return `# 🧠 Perfilamento rápido
 
-CQI ${cqi}/100 · ${engPct}% engajado · ${p.raw_signal_count || 0} sinais ao longo de ${p.duration_s}s · respondeu ${answered}/${(p.per_question||[]).length} perguntas.
+CQI ${cqi}/100 · ${engPct}% engajado · ${p.raw_signal_count || 0} sinais ao longo de ${p.duration_s}s · respondeu ${answered}/${(p.per_question || []).length} perguntas.
 
 ## O que vimos
 O sinal mais recorrente foi **${top}** com ${topCount} ocorrência(s). Sua dimensão CQI mais forte foi **${topDim || '—'}** (${topDim ? Math.round(dims[topDim]) : '—'}/100).
 
 ## Resposta por pergunta
-${(p.per_question || []).map(q => `- **${q.idx}.** ${q.really_answered ? '✓ respondeu' : '✗ silenciou'} · ${Math.round((q.audio_activity || 0) * 100)}% voz · sinais: ${(q.signals || []).map(s => s.type).join(', ') || 'nenhum'}`).join('\n')}
+${(p.per_question || []).map((q) => `- **${q.idx}.** ${q.really_answered ? '✓ respondeu' : '✗ silenciou'} · ${Math.round((q.audio_activity || 0) * 100)}% voz · sinais: ${(q.signals || []).map((s) => s.type).join(', ') || 'nenhum'}`).join('\n')}
 
 *Report gerado pelo backend em modo fallback — sem IA conectada. Configure ANTHROPIC_API_KEY no Render pra ativar o perfilamento turbinado.*`;
 }
@@ -560,8 +631,12 @@ wss.on('connection', (client, req) => {
   let authedBy = null;
   let authedEmail = null;
   const tokenPayload = t ? verifyToken(t) : null;
-  if (tokenPayload) { authedBy = 'token'; authedEmail = tokenPayload.email; }
-  else if (PASSCODE && p === PASSCODE) { authedBy = 'passcode'; }
+  if (tokenPayload) {
+    authedBy = 'token';
+    authedEmail = tokenPayload.email;
+  } else if (PASSCODE && p === PASSCODE) {
+    authedBy = 'passcode';
+  }
 
   if (!authedBy && (PASSCODE || USERS.size)) {
     log(clientId, 'REJECT auth', { origin, hadToken: Boolean(t), hadPasscode: Boolean(p) });
@@ -587,7 +662,9 @@ wss.on('connection', (client, req) => {
     if (!upstreamOpen) {
       logEvent('ws.upstream_timeout', { clientId });
       rejectClient(client, 4504, 'upstream_timeout', 'upstream não respondeu a tempo');
-      try { upstream.terminate(); } catch {}
+      try {
+        upstream.terminate();
+      } catch {}
     }
   }, 10000);
 
@@ -608,19 +685,27 @@ wss.on('connection', (client, req) => {
   upstream.on('close', (code, reason) => {
     clearTimeout(upstreamTimeout);
     log(clientId, 'upstream CLOSE', code, reason?.toString?.());
-    safeSend(client, JSON.stringify({
-      type: 'proxy.upstream_close',
-      data: { code, reason: reason?.toString?.() || '' },
-    }));
-    try { client.close(); } catch {}
+    safeSend(
+      client,
+      JSON.stringify({
+        type: 'proxy.upstream_close',
+        data: { code, reason: reason?.toString?.() || '' },
+      }),
+    );
+    try {
+      client.close();
+    } catch {}
   });
 
   upstream.on('error', (err) => {
     log(clientId, 'upstream ERROR', err.message);
-    safeSend(client, JSON.stringify({
-      type: 'proxy.upstream_error',
-      data: { message: err.message },
-    }));
+    safeSend(
+      client,
+      JSON.stringify({
+        type: 'proxy.upstream_error',
+        data: { message: err.message },
+      }),
+    );
   });
 
   client.on('message', (data, isBinary) => {
@@ -632,29 +717,42 @@ wss.on('connection', (client, req) => {
   client.on('close', (code, reason) => {
     clearTimeout(upstreamTimeout);
     log(clientId, 'browser CLOSE', code, reason?.toString?.());
-    try { upstream.close(); } catch {}
+    try {
+      upstream.close();
+    } catch {}
   });
 
   client.on('error', (err) => {
     log(clientId, 'browser ERROR', err.message);
-    try { upstream.close(); } catch {}
+    try {
+      upstream.close();
+    } catch {}
   });
 });
 
 function safeSend(ws, data, opts) {
   if (ws.readyState === WebSocket.OPEN) {
-    try { ws.send(data, opts); } catch (e) { console.error('send err', e.message); }
+    try {
+      ws.send(data, opts);
+    } catch (e) {
+      console.error('send err', e.message);
+    }
   }
 }
 
 function rejectClient(client, code, reasonCode, reasonText) {
   // Envia mensagem JSON pro browser entender ANTES de fechar (cloudflare etc.
   // costuma stripar custom close codes, então mandar JSON é mais robusto).
-  safeSend(client, JSON.stringify({
-    type: 'proxy.auth_rejected',
-    data: { code, reason: reasonCode, message: reasonText },
-  }));
-  try { client.close(code, reasonCode); } catch {}
+  safeSend(
+    client,
+    JSON.stringify({
+      type: 'proxy.auth_rejected',
+      data: { code, reason: reasonCode, message: reasonText },
+    }),
+  );
+  try {
+    client.close(code, reasonCode);
+  } catch {}
 }
 
 function log(id, ...args) {
@@ -666,8 +764,14 @@ server.listen(PORT, () => {
   console.log(`  Upstream: ${UPSTREAM_URL}`);
   console.log(`  Chave Interhuman: ${API_KEY.slice(0, 12)}...${API_KEY.slice(-4)}`);
   console.log(`  Passcode WS: ${PASSCODE ? 'EXIGIDO' : 'desligado'}`);
-  console.log(`  Origins permitidos: ${ALLOWED_ORIGINS.length ? ALLOWED_ORIGINS.join(', ') : '(qualquer)'}`);
-  console.log(`  Auth /auth: ${USERS.size ? `${USERS.size} usuário(s) configurado(s)` : 'desligado (USERS vazio)'}`);
+  console.log(
+    `  Origins permitidos: ${ALLOWED_ORIGINS.length ? ALLOWED_ORIGINS.join(', ') : '(qualquer)'}`,
+  );
+  console.log(
+    `  Auth /auth: ${USERS.size ? `${USERS.size} usuário(s) configurado(s)` : 'desligado (USERS vazio)'}`,
+  );
   console.log(`  Token TTL: ${TOKEN_TTL_HOURS}h (com rememberMe: 720h)`);
-  console.log(`  Report IA: ${ANTHROPIC_API_KEY ? `${ANTHROPIC_MODEL} via Anthropic SDK` : 'desligado (fallback rule-based)'}\n`);
+  console.log(
+    `  Report IA: ${ANTHROPIC_API_KEY ? `${ANTHROPIC_MODEL} via Anthropic SDK` : 'desligado (fallback rule-based)'}\n`,
+  );
 });
