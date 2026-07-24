@@ -726,6 +726,14 @@ function v2Endpoint(name) {
 }
 function reportEndpoint() { return v2Endpoint('v2/report'); }
 
+// Token de sessão (do localStorage ou do config injetado pelo auth gate)
+function authToken() {
+  try {
+    const a = JSON.parse(localStorage.getItem('ego_auth') || 'null');
+    return a?.token || (window.IH_CONFIG || {}).token || '';
+  } catch { return (window.IH_CONFIG || {}).token || ''; }
+}
+
 function buildReportPayload() {
   const top = topSignals();
   const eng = engagementBreakdown();
@@ -797,11 +805,21 @@ async function requestReport() {
   pushRaw('proxy', 'report.request', { questions: payload.per_question.length });
   let data;
   try {
+    const headers = { 'Content-Type': 'application/json' };
+    const tk = authToken();
+    if (tk) headers['Authorization'] = `Bearer ${tk}`;
     const r = await fetch(reportEndpoint(), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(payload),
     });
+    if (r.status === 401) {
+      // sessão expirada/invalidada → limpa token e volta pro login
+      pushRaw('error', 'report.unauthorized', {});
+      try { localStorage.removeItem('ego_auth'); } catch {}
+      location.replace('../login.html');
+      return;
+    }
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     data = await r.json();
   } catch (e) {
