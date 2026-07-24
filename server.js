@@ -164,6 +164,11 @@ app.use(
 );
 
 app.use(express.json({ limit: '512kb' }));
+
+// v1 legada removida: a raiz e o antigo /index.html mandam pro login (que
+// encaminha pro /v2/). Cobre bookmarks antigos sem dar 404.
+app.get(['/', '/index.html'], (_req, res) => res.redirect(302, '/login.html'));
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ============= Rate limiting =============
