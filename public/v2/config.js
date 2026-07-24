@@ -1,8 +1,8 @@
 // PROD config — backend Node hospedado no Render
-// Passcode embutido aqui pra que ego.sougni.com funcione sem ?p= na URL.
-// O backend ainda exige passcode + origin allowlist (https://ego.sougni.com),
-// então qualquer fetch fora desse contexto é rejeitado.
+// SEM passcode embutido: o acesso é feito via login (token HMAC em localStorage
+// ego_auth, injetado pelo auth gate do index.html). O backend valida token +
+// origin allowlist (https://ego.sougni.com). O passcode virou fallback
+// SÓ do servidor (env PASSCODE no Render), nunca exposto no cliente.
 window.IH_CONFIG = {
   wsUrl: 'wss://ego-backend-lerb.onrender.com/ws',
-  passcode: 'ego-2026-K7mP9XzQ',
 };
