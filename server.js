@@ -13,6 +13,8 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import Anthropic from '@anthropic-ai/sdk';
 import rateLimit from 'express-rate-limit';
+import helmet from 'helmet';
+import { z } from 'zod';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -108,6 +110,34 @@ const app = express();
 // Render/Cloudflare ficam na frente — confiar no primeiro proxy pra ler o IP
 // real (X-Forwarded-For) e o express-rate-limit funcionar corretamente.
 app.set('trust proxy', 1);
+
+// ============= Headers de segurança (helmet) =============
+// CSP calibrada pra NÃO quebrar: fontes Google (Montserrat/Fraunces), o WS do
+// backend Render, e os scripts/estilos inline (auth gate, handlers). Webcam e
+// card de compartilhamento usam blob:/data:. upgrade-insecure-requests fica
+// desligado pra não estourar o dev em http://localhost.
+const BACKEND_ORIGIN = (process.env.PUBLIC_BACKEND_ORIGIN || 'https://ego-backend-lerb.onrender.com').replace(/\/$/, '');
+const BACKEND_WSS = BACKEND_ORIGIN.replace(/^http/, 'ws');
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: true,
+    directives: {
+      defaultSrc: ["'self'"],
+      baseUri: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+      fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
+      imgSrc: ["'self'", 'data:', 'blob:'],
+      mediaSrc: ["'self'", 'blob:'],
+      connectSrc: ["'self'", BACKEND_ORIGIN, BACKEND_WSS, 'ws://localhost:*', 'http://localhost:*'],
+      objectSrc: ["'none'"],
+      frameAncestors: ["'self'"],
+      upgradeInsecureRequests: null,
+    },
+  },
+  crossOriginEmbedderPolicy: false,   // não exigir COEP (quebraria embeds/fontes)
+}));
+
 app.use(express.json({ limit: '512kb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -162,7 +192,7 @@ app.get('/health', (_req, res) => res.json({
 // ============= /auth — login com email + senha =============
 app.options('/auth', (req, res) => {
   res.set({
-    'Access-Control-Allow-Origin': req.headers.origin || '*',
+    'Access-Control-Allow-Origin': corsAllowOrigin(req),
     'Access-Control-Allow-Methods': 'POST',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Max-Age': '600',
@@ -171,7 +201,7 @@ app.options('/auth', (req, res) => {
 });
 app.post('/auth', authLimiter, (req, res) => {
   if (!checkOrigin(req)) return res.status(403).json({ error: 'origin not allowed' });
-  res.set('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.set('Access-Control-Allow-Origin', corsAllowOrigin(req));
 
   const { email, password, rememberMe, guest } = req.body || {};
 
@@ -219,9 +249,44 @@ function checkOrigin(req) {
   return ALLOWED_ORIGINS.includes(req.headers.origin || '');
 }
 
+// CORS controlado: sem allowlist (dev) ecoa o que veio. Com allowlist, só ecoa
+// o Origin se ele estiver permitido; caso contrário fixa o primeiro permitido
+// (nunca ecoa origin arbitrário, evitando refletir qualquer site).
+function corsAllowOrigin(req) {
+  const origin = req.headers.origin || '';
+  if (!ALLOWED_ORIGINS.length) return origin || '*';
+  if (ALLOWED_ORIGINS.includes(origin)) return origin;
+  return ALLOWED_ORIGINS[0];
+}
+
+// ============= Validação de schema do payload (/v2/report) =============
+// Espelha buildReportPayload() do frontend. Lenient (passthrough + campos
+// opcionais) pra não rejeitar payload legítimo que evolua, mas trava lixo:
+// precisa ser objeto, per_question array capado (anti-abuso), tipos corretos
+// quando presentes. Payload inválido NÃO vai pro Claude (economia + segurança).
+const perQuestionSchema = z.object({
+  idx: z.number().optional(),
+  question: z.string().max(2000).optional(),
+  duration_s: z.number().optional(),
+  audio_activity: z.number().optional(),
+  really_answered: z.boolean().optional(),
+  signals: z.array(z.any()).max(500).optional(),
+  engagement_changes: z.array(z.any()).max(2000).optional(),
+}).passthrough();
+
+const reportPayloadSchema = z.object({
+  duration_s: z.number().nonnegative().optional(),
+  cqi: z.any().optional(),
+  cqi_timeline_points: z.number().optional(),
+  engagement_pct: z.any().optional(),
+  top_signals: z.array(z.any()).max(100).optional(),
+  per_question: z.array(perQuestionSchema).max(50).optional(),
+  raw_signal_count: z.number().optional(),
+}).passthrough();
+
 app.options('/report', (req, res) => {
   res.set({
-    'Access-Control-Allow-Origin': req.headers.origin || '*',
+    'Access-Control-Allow-Origin': corsAllowOrigin(req),
     'Access-Control-Allow-Methods': 'POST',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Max-Age': '600',
@@ -233,7 +298,7 @@ app.post('/report', reportLimiter, requireToken, async (req, res) => {
   if (!checkOrigin(req)) {
     return res.status(403).json({ error: 'origin not allowed' });
   }
-  res.set('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.set('Access-Control-Allow-Origin', corsAllowOrigin(req));
 
   const t0 = Date.now();
   const payload = req.body || {};
@@ -309,7 +374,7 @@ Produz o perfilamento agora, seguindo a estrutura exata.`;
 // ============= /v2/report — perfilamento Claude da sessão atual =============
 app.options('/v2/report', (req, res) => {
   res.set({
-    'Access-Control-Allow-Origin': req.headers.origin || '*',
+    'Access-Control-Allow-Origin': corsAllowOrigin(req),
     'Access-Control-Allow-Methods': 'POST',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   });
@@ -317,7 +382,7 @@ app.options('/v2/report', (req, res) => {
 });
 app.post('/v2/report', reportLimiter, requireToken, async (req, res) => {
   if (!checkOrigin(req)) return res.status(403).json({ error: 'origin not allowed' });
-  res.set('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.set('Access-Control-Allow-Origin', corsAllowOrigin(req));
 
   const t0 = Date.now();
   const payload = req.body || {};
@@ -325,6 +390,17 @@ app.post('/v2/report', reportLimiter, requireToken, async (req, res) => {
     logEvent('report.request', { route: '/v2/report', role: req.user?.role, ip: clientIp(req), bytes: JSON.stringify(payload).length, latency_ms: Date.now() - t0, source: body.source });
     return res.json(body);
   };
+
+  // Valida schema ANTES de qualquer processamento — payload podre não chega ao Claude.
+  const parsed = reportPayloadSchema.safeParse(payload);
+  if (!parsed.success) {
+    logEvent('report.invalid', { route: '/v2/report', ip: clientIp(req), issues: parsed.error.issues.length });
+    return res.status(400).json({
+      error: 'invalid_payload',
+      details: parsed.error.issues.slice(0, 10).map(i => ({ path: i.path.join('.'), message: i.message })),
+    });
+  }
+
   if (!anthropic) return respond({ markdown: ruleBasedReport(payload), source: 'fallback-no-ai' });
 
   // Enriquecer payload da sessão com derived metrics ANTES de passar pro Claude
