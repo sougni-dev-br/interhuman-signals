@@ -1,0 +1,22 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: '/'
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # Agrupa patches/minors num PR só pra reduzir ruído.
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # Express 4->5 é breaking demais — adiado pra FASE 4 (decisão manual).
+      - dependency-name: express
+        update-types: ['version-update:semver-major']
+
+  - package-ecosystem: github-actions
+    directory: '/'
+    schedule:
+      interval: weekly

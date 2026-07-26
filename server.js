@@ -4,7 +4,8 @@
 //   Browser <--ws--> THIS PROXY <--wss--> api.interhuman.ai/v1/stream/analyze
 //   Browser ---POST /report---> THIS PROXY ----> Anthropic Claude (perfilamento)
 
-import 'dotenv/config';
+import dotenv from 'dotenv';
+dotenv.config({ quiet: true }); // dotenv 17: quiet suprime o banner promocional no boot
 import express from 'express';
 import http from 'node:http';
 import path from 'node:path';
@@ -12,6 +13,22 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import Anthropic from '@anthropic-ai/sdk';
+import rateLimit from 'express-rate-limit';
+import helmet from 'helmet';
+import { z } from 'zod';
+import {
+  initDb,
+  seedAdmin,
+  DB_MODE,
+  getUserByEmail,
+  verifyPassword,
+  listUsers,
+  createUser,
+  updateUser,
+  deleteUser,
+  getUserById,
+  VALID_ROLES,
+} from './db.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -20,7 +37,9 @@ const PORT = Number(process.env.PORT || 3737);
 const UPSTREAM_URL = 'wss://api.interhuman.ai/v1/stream/analyze';
 const PASSCODE = process.env.PASSCODE || '';
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
-  .split(',').map(s => s.trim()).filter(Boolean);
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
 
@@ -28,7 +47,15 @@ const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
 // TOKEN_SECRET assina os tokens HMAC; default deriva do PASSCODE pra não ter
 // que setar mais uma env var.
 const USERS = parseUsers(process.env.USERS || '');
-const TOKEN_SECRET = process.env.TOKEN_SECRET || PASSCODE || 'change-me';
+// TOKEN_SECRET assina os tokens HMAC. SEM fallback inseguro: se nem TOKEN_SECRET
+// nem PASSCODE estiverem no ambiente, o processo aborta (tokens seriam forjáveis).
+if (!process.env.TOKEN_SECRET && !process.env.PASSCODE) {
+  console.error(
+    '[fatal] defina TOKEN_SECRET (recomendado) ou PASSCODE no ambiente — sem isso qualquer um poderia forjar tokens de sessão.',
+  );
+  process.exit(1);
+}
+const TOKEN_SECRET = process.env.TOKEN_SECRET || PASSCODE;
 const TOKEN_TTL_HOURS = Number(process.env.TOKEN_TTL_HOURS || 24);
 
 function parseUsers(raw) {
@@ -41,7 +68,11 @@ function parseUsers(raw) {
 }
 
 function b64url(buf) {
-  return Buffer.from(buf).toString('base64').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+  return Buffer.from(buf)
+    .toString('base64')
+    .replace(/=+$/, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
 }
 function b64urlDecode(s) {
   s = s.replace(/-/g, '+').replace(/_/g, '/');
@@ -59,13 +90,29 @@ function verifyToken(token) {
   if (!body || !sig) return null;
   const expectedSig = b64url(crypto.createHmac('sha256', TOKEN_SECRET).update(body).digest());
   // constant-time comparison
-  const a = Buffer.from(sig); const b = Buffer.from(expectedSig);
+  const a = Buffer.from(sig);
+  const b = Buffer.from(expectedSig);
   if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
   try {
     const payload = JSON.parse(b64urlDecode(body).toString('utf8'));
     if (payload.exp && Date.now() / 1000 > payload.exp) return null;
     return payload;
-  } catch { return null; }
+  } catch {
+    return null;
+  }
+}
+
+// ============= Logging estruturado (JSON por linha) =============
+function logEvent(type, data = {}) {
+  try {
+    console.log(JSON.stringify({ ts: new Date().toISOString(), type, ...data }));
+  } catch {
+    console.log(JSON.stringify({ ts: new Date().toISOString(), type }));
+  }
+}
+function clientIp(req) {
+  const xff = (req.headers?.['x-forwarded-for'] || '').split(',')[0].trim();
+  return xff || req.socket?.remoteAddress || req.connection?.remoteAddress || 'unknown';
 }
 
 if (!API_KEY) {
@@ -75,72 +122,300 @@ if (!API_KEY) {
 
 const anthropic = ANTHROPIC_API_KEY ? new Anthropic({ apiKey: ANTHROPIC_API_KEY }) : null;
 
+// Chamada ao Claude com timeout duro (AbortController). Se estourar, lança —
+// e o endpoint que chama cai no ruleBasedReport com source 'timeout'.
+async function claudeCreate(params, ms = 30000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await anthropic.messages.create(params, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const app = express();
+// Render/Cloudflare ficam na frente — confiar no primeiro proxy pra ler o IP
+// real (X-Forwarded-For) e o express-rate-limit funcionar corretamente.
+app.set('trust proxy', 1);
+
+// ============= Headers de segurança (helmet) =============
+// CSP calibrada pra NÃO quebrar: fontes Google (Montserrat/Fraunces), o WS do
+// backend Render, e os scripts/estilos inline (auth gate, handlers). Webcam e
+// card de compartilhamento usam blob:/data:. upgrade-insecure-requests fica
+// desligado pra não estourar o dev em http://localhost.
+const BACKEND_ORIGIN = (
+  process.env.PUBLIC_BACKEND_ORIGIN || 'https://ego-backend-lerb.onrender.com'
+).replace(/\/$/, '');
+const BACKEND_WSS = BACKEND_ORIGIN.replace(/^http/, 'ws');
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: {
+        defaultSrc: ["'self'"],
+        baseUri: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+        fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
+        imgSrc: ["'self'", 'data:', 'blob:'],
+        mediaSrc: ["'self'", 'blob:'],
+        connectSrc: [
+          "'self'",
+          BACKEND_ORIGIN,
+          BACKEND_WSS,
+          'ws://localhost:*',
+          'http://localhost:*',
+        ],
+        objectSrc: ["'none'"],
+        frameAncestors: ["'self'"],
+        upgradeInsecureRequests: null,
+      },
+    },
+    crossOriginEmbedderPolicy: false, // não exigir COEP (quebraria embeds/fontes)
+  }),
+);
+
 app.use(express.json({ limit: '512kb' }));
+
+// v1 legada removida: a raiz e o antigo /index.html mandam pro login (que
+// encaminha pro /v2/). Cobre bookmarks antigos sem dar 404.
+app.get(['/', '/index.html'], (_req, res) => res.redirect(302, '/login.html'));
+
 app.use(express.static(path.join(__dirname, 'public')));
-app.get('/health', (_req, res) => res.json({
-  ok: true,
-  upstream: UPSTREAM_URL,
-  passcodeRequired: Boolean(PASSCODE),
-  originsAllowed: ALLOWED_ORIGINS,
-  aiReportEnabled: Boolean(ANTHROPIC_API_KEY),
-  aiModel: ANTHROPIC_API_KEY ? ANTHROPIC_MODEL : null,
-  authEnabled: USERS.size > 0,
-  userCount: USERS.size,
-  guestEnabled: true,
-  v2Endpoints: ['/v2/report'],
-}));
+
+// ============= Rate limiting =============
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 min
+  max: 10, // 10 tentativas por IP
+  skipSuccessfulRequests: true, // logins OK não contam
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    logEvent('ratelimit', { route: '/auth', ip: clientIp(req) });
+    res.status(429).json({ error: 'rate_limit_exceeded', retryAfter: 15 * 60 });
+  },
+});
+const reportLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hora
+  max: 5, // 5 reports por IP/hora (custo Claude)
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    logEvent('ratelimit', { route: 'report', ip: clientIp(req) });
+    res.status(429).json({ error: 'rate_limit_exceeded', retryAfter: 60 * 60 });
+  },
+});
+
+// ============= Auth obrigatória (token HMAC válido) =============
+function requireToken(req, res, next) {
+  const auth = req.headers.authorization || '';
+  const m = auth.match(/^Bearer\s+(.+)$/);
+  const payload = m ? verifyToken(m[1]) : null;
+  if (!payload) {
+    logEvent('auth.reject', { route: req.path, ip: clientIp(req) });
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  req.user = payload; // { email, exp, role }
+  next();
+}
+app.get('/health', (_req, res) =>
+  res.json({
+    ok: true,
+    upstream: UPSTREAM_URL,
+    passcodeRequired: Boolean(PASSCODE),
+    originsAllowed: ALLOWED_ORIGINS,
+    aiReportEnabled: Boolean(ANTHROPIC_API_KEY),
+    aiModel: ANTHROPIC_API_KEY ? ANTHROPIC_MODEL : null,
+    authEnabled: USERS.size > 0,
+    userCount: USERS.size,
+    guestEnabled: true,
+    v2Endpoints: ['/v2/report'],
+  }),
+);
 
 // ============= /auth — login com email + senha =============
 app.options('/auth', (req, res) => {
   res.set({
-    'Access-Control-Allow-Origin': req.headers.origin || '*',
+    'Access-Control-Allow-Origin': corsAllowOrigin(req),
     'Access-Control-Allow-Methods': 'POST',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Max-Age': '600',
   });
   res.status(204).end();
 });
-app.post('/auth', (req, res) => {
+app.post('/auth', authLimiter, async (req, res) => {
   if (!checkOrigin(req)) return res.status(403).json({ error: 'origin not allowed' });
-  res.set('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.set('Access-Control-Allow-Origin', corsAllowOrigin(req));
 
   const { email, password, rememberMe, guest } = req.body || {};
 
   // GUEST mode — token sem credencial, TTL 1h, role=guest
   if (guest === true) {
-    const exp = Math.floor(Date.now() / 1000) + 3600;  // 1h
+    const exp = Math.floor(Date.now() / 1000) + 3600; // 1h
     const guestEmail = 'visitante@ego.local';
     const token = signToken({ email: guestEmail, exp, role: 'guest' });
+    logEvent('auth.success', { role: 'guest', ip: clientIp(req) });
     return res.json({ ok: true, token, email: guestEmail, exp, role: 'guest' });
   }
 
   if (!email || !password) return res.status(400).json({ error: 'email e senha são obrigatórios' });
-  if (!USERS.size) return res.status(503).json({ error: 'auth não configurado no servidor (USERS vazio)' });
 
-  const stored = USERS.get(String(email).trim().toLowerCase());
-  // constant-time compare se ambos existem
-  if (!stored || !crypto.timingSafeEqual(
-    Buffer.from(stored.padEnd(64, '\0')),
-    Buffer.from(String(password).padEnd(64, '\0')).slice(0, 64),
-  )) {
-    return res.status(401).json({ error: 'email ou senha inválidos' });
-  }
-
+  const em = String(email).trim().toLowerCase();
   const ttlHours = rememberMe ? 24 * 30 : TOKEN_TTL_HOURS;
   const exp = Math.floor(Date.now() / 1000) + ttlHours * 3600;
-  const token = signToken({ email: email.toLowerCase(), exp, role: 'user' });
-  return res.json({ ok: true, token, email: email.toLowerCase(), exp, role: 'user' });
+
+  // 1) Banco (fonte de verdade — usuários gerenciados pelo admin)
+  try {
+    const u = await getUserByEmail(em);
+    if (u) {
+      if (Number(u.active) !== 1) {
+        logEvent('auth.fail', { ip: clientIp(req), email: em, reason: 'inactive' });
+        return res.status(403).json({ error: 'conta desativada' });
+      }
+      if (verifyPassword(password, u.password_hash)) {
+        const token = signToken({ email: em, exp, role: u.role });
+        logEvent('auth.success', { role: u.role, email: em, ip: clientIp(req), src: 'db' });
+        return res.json({ ok: true, token, email: em, exp, role: u.role });
+      }
+      logEvent('auth.fail', { ip: clientIp(req), email: em, reason: 'bad_password' });
+      return res.status(401).json({ error: 'email ou senha inválidos' });
+    }
+  } catch (e) {
+    logEvent('db.error', { op: 'auth.lookup', message: e.message });
+    // segue pro fallback de env abaixo
+  }
+
+  // 2) Fallback legado: env USERS (compat durante a transição)
+  const stored = USERS.get(em);
+  const fixed64 = (s) => {
+    const b = Buffer.alloc(64);
+    Buffer.from(String(s), 'utf8').copy(b, 0, 0, 64);
+    return b;
+  };
+  const ok = Boolean(stored) && crypto.timingSafeEqual(fixed64(stored), fixed64(password));
+  if (!ok) {
+    logEvent('auth.fail', { ip: clientIp(req), email: em.slice(0, 80) });
+    return res.status(401).json({ error: 'email ou senha inválidos' });
+  }
+  const token = signToken({ email: em, exp, role: 'user' });
+  logEvent('auth.success', { role: 'user', email: em, ip: clientIp(req), src: 'env' });
+  return res.json({ ok: true, token, email: em, exp, role: 'user' });
 });
 
-// Helper — extract token from Authorization header and check if it's a guest
-function getTokenRole(req) {
-  const auth = req.headers.authorization || '';
-  const m = auth.match(/^Bearer\s+(.+)$/);
-  if (!m) return null;
-  const payload = verifyToken(m[1]);
-  return payload?.role || 'user';
+// ============= Admin — CRUD de usuários (só role=admin) =============
+function requireAdmin(req, res, next) {
+  requireToken(req, res, () => {
+    if (req.user?.role !== 'admin') {
+      logEvent('admin.forbidden', { email: req.user?.email, ip: clientIp(req) });
+      return res.status(403).json({ error: 'forbidden' });
+    }
+    next();
+  });
 }
+
+const adminUserSchema = z.object({
+  email: z.string().email().max(200),
+  password: z.string().min(6).max(200),
+  role: z.enum(['admin', 'user', 'guest']).default('user'),
+});
+const adminPatchSchema = z
+  .object({
+    role: z.enum(['admin', 'user', 'guest']).optional(),
+    active: z.boolean().optional(),
+    password: z.string().min(6).max(200).optional(),
+  })
+  .refine((o) => Object.keys(o).length > 0, { message: 'nada para atualizar' });
+
+app.options(['/admin/users', '/admin/users/:id'], (req, res) => {
+  res.set({
+    'Access-Control-Allow-Origin': corsAllowOrigin(req),
+    'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Max-Age': '600',
+  });
+  res.status(204).end();
+});
+
+app.get('/admin/users', requireAdmin, async (req, res) => {
+  res.set('Access-Control-Allow-Origin', corsAllowOrigin(req));
+  try {
+    res.json({ ok: true, roles: VALID_ROLES, users: await listUsers() });
+  } catch (e) {
+    logEvent('db.error', { op: 'listUsers', message: e.message });
+    res.status(500).json({ error: 'db_error' });
+  }
+});
+
+app.post('/admin/users', requireAdmin, async (req, res) => {
+  res.set('Access-Control-Allow-Origin', corsAllowOrigin(req));
+  const parsed = adminUserSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: 'invalid_payload',
+      details: parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
+    });
+  }
+  try {
+    const existing = await getUserByEmail(parsed.data.email);
+    if (existing) return res.status(409).json({ error: 'email já cadastrado' });
+    const user = await createUser(parsed.data);
+    logEvent('admin.user.create', { by: req.user.email, email: user.email, role: user.role });
+    res.status(201).json({ ok: true, user });
+  } catch (e) {
+    logEvent('db.error', { op: 'createUser', message: e.message });
+    res.status(500).json({ error: 'db_error' });
+  }
+});
+
+app.patch('/admin/users/:id', requireAdmin, async (req, res) => {
+  res.set('Access-Control-Allow-Origin', corsAllowOrigin(req));
+  const parsed = adminPatchSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: 'invalid_payload',
+      details: parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
+    });
+  }
+  try {
+    const target = await getUserById(req.params.id);
+    if (!target) return res.status(404).json({ error: 'não encontrado' });
+    // trava de segurança: não permitir remover o próprio status de admin/desativar-se
+    if (
+      target.email === req.user.email &&
+      (parsed.data.role === 'user' || parsed.data.active === false)
+    ) {
+      return res.status(400).json({ error: 'você não pode rebaixar/desativar a própria conta' });
+    }
+    const user = await updateUser(req.params.id, parsed.data);
+    logEvent('admin.user.update', {
+      by: req.user.email,
+      id: user.id,
+      changes: Object.keys(parsed.data),
+    });
+    res.json({ ok: true, user });
+  } catch (e) {
+    logEvent('db.error', { op: 'updateUser', message: e.message });
+    res.status(500).json({ error: 'db_error' });
+  }
+});
+
+app.delete('/admin/users/:id', requireAdmin, async (req, res) => {
+  res.set('Access-Control-Allow-Origin', corsAllowOrigin(req));
+  try {
+    const target = await getUserById(req.params.id);
+    if (!target) return res.status(404).json({ error: 'não encontrado' });
+    if (target.email === req.user.email) {
+      return res.status(400).json({ error: 'você não pode excluir a própria conta' });
+    }
+    await deleteUser(req.params.id);
+    logEvent('admin.user.delete', { by: req.user.email, id: Number(req.params.id) });
+    res.json({ ok: true });
+  } catch (e) {
+    logEvent('db.error', { op: 'deleteUser', message: e.message });
+    res.status(500).json({ error: 'db_error' });
+  }
+});
 
 // ============= /report — gera perfilamento via Claude =============
 function checkOrigin(req) {
@@ -148,34 +423,84 @@ function checkOrigin(req) {
   return ALLOWED_ORIGINS.includes(req.headers.origin || '');
 }
 
+// CORS controlado: sem allowlist (dev) ecoa o que veio. Com allowlist, só ecoa
+// o Origin se ele estiver permitido; caso contrário fixa o primeiro permitido
+// (nunca ecoa origin arbitrário, evitando refletir qualquer site).
+function corsAllowOrigin(req) {
+  const origin = req.headers.origin || '';
+  if (!ALLOWED_ORIGINS.length) return origin || '*';
+  if (ALLOWED_ORIGINS.includes(origin)) return origin;
+  return ALLOWED_ORIGINS[0];
+}
+
+// ============= Validação de schema do payload (/v2/report) =============
+// Espelha buildReportPayload() do frontend. Lenient (passthrough + campos
+// opcionais) pra não rejeitar payload legítimo que evolua, mas trava lixo:
+// precisa ser objeto, per_question array capado (anti-abuso), tipos corretos
+// quando presentes. Payload inválido NÃO vai pro Claude (economia + segurança).
+const perQuestionSchema = z
+  .object({
+    idx: z.number().optional(),
+    question: z.string().max(2000).optional(),
+    duration_s: z.number().optional(),
+    audio_activity: z.number().optional(),
+    really_answered: z.boolean().optional(),
+    signals: z.array(z.any()).max(500).optional(),
+    engagement_changes: z.array(z.any()).max(2000).optional(),
+  })
+  .passthrough();
+
+const reportPayloadSchema = z
+  .object({
+    duration_s: z.number().nonnegative().optional(),
+    cqi: z.any().optional(),
+    cqi_timeline_points: z.number().optional(),
+    engagement_pct: z.any().optional(),
+    top_signals: z.array(z.any()).max(100).optional(),
+    per_question: z.array(perQuestionSchema).max(50).optional(),
+    raw_signal_count: z.number().optional(),
+  })
+  .passthrough();
+
 app.options('/report', (req, res) => {
   res.set({
-    'Access-Control-Allow-Origin': req.headers.origin || '*',
+    'Access-Control-Allow-Origin': corsAllowOrigin(req),
     'Access-Control-Allow-Methods': 'POST',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Max-Age': '600',
   });
   res.status(204).end();
 });
 
-app.post('/report', async (req, res) => {
+app.post('/report', reportLimiter, requireToken, async (req, res) => {
   if (!checkOrigin(req)) {
     return res.status(403).json({ error: 'origin not allowed' });
   }
-  res.set('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.set('Access-Control-Allow-Origin', corsAllowOrigin(req));
 
+  const t0 = Date.now();
   const payload = req.body || {};
-  if (!anthropic) {
-    return res.json({ markdown: ruleBasedReport(payload), source: 'fallback-no-ai' });
-  }
+  const respond = (body) => {
+    logEvent('report.request', {
+      route: '/report',
+      role: req.user?.role,
+      ip: clientIp(req),
+      bytes: JSON.stringify(payload).length,
+      latency_ms: Date.now() - t0,
+      source: body.source,
+    });
+    return res.json(body);
+  };
+  if (!anthropic) return respond({ markdown: ruleBasedReport(payload), source: 'fallback-no-ai' });
   try {
     const md = await callClaude(payload);
-    return res.json({ markdown: md, source: 'claude', model: ANTHROPIC_MODEL });
+    return respond({ markdown: md, source: 'claude', model: ANTHROPIC_MODEL });
   } catch (e) {
-    console.error('[report] Claude err:', e.message);
-    return res.json({
+    const timedOut = e.name === 'AbortError' || /abort/i.test(e.message || '');
+    logEvent('claude.error', { route: '/report', timedOut, message: e.message });
+    return respond({
       markdown: ruleBasedReport(payload),
-      source: 'fallback-error',
+      source: timedOut ? 'timeout' : 'fallback-error',
       error: e.message,
     });
   }
@@ -224,50 +549,74 @@ ${JSON.stringify(payload, null, 2)}
 
 Produz o perfilamento agora, seguindo a estrutura exata.`;
 
-  const resp = await anthropic.messages.create({
+  const resp = await claudeCreate({
     model: ANTHROPIC_MODEL,
     max_tokens: 1400,
     temperature: 0.7,
     system,
     messages: [{ role: 'user', content: user }],
   });
-  const text = resp.content.find(c => c.type === 'text')?.text || '';
+  const text = resp.content.find((c) => c.type === 'text')?.text || '';
   return text.trim();
 }
 
 // ============= /v2/report — perfilamento Claude da sessão atual =============
 app.options('/v2/report', (req, res) => {
   res.set({
-    'Access-Control-Allow-Origin': req.headers.origin || '*',
+    'Access-Control-Allow-Origin': corsAllowOrigin(req),
     'Access-Control-Allow-Methods': 'POST',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   });
   res.status(204).end();
 });
-app.post('/v2/report', async (req, res) => {
+app.post('/v2/report', reportLimiter, requireToken, async (req, res) => {
   if (!checkOrigin(req)) return res.status(403).json({ error: 'origin not allowed' });
-  res.set('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.set('Access-Control-Allow-Origin', corsAllowOrigin(req));
 
+  const t0 = Date.now();
   const payload = req.body || {};
-  if (!anthropic) {
-    return res.json({ markdown: ruleBasedReport(payload), source: 'fallback-no-ai' });
+  const respond = (body) => {
+    logEvent('report.request', {
+      route: '/v2/report',
+      role: req.user?.role,
+      ip: clientIp(req),
+      bytes: JSON.stringify(payload).length,
+      latency_ms: Date.now() - t0,
+      source: body.source,
+    });
+    return res.json(body);
+  };
+
+  // Valida schema ANTES de qualquer processamento — payload podre não chega ao Claude.
+  const parsed = reportPayloadSchema.safeParse(payload);
+  if (!parsed.success) {
+    logEvent('report.invalid', {
+      route: '/v2/report',
+      ip: clientIp(req),
+      issues: parsed.error.issues.length,
+    });
+    return res.status(400).json({
+      error: 'invalid_payload',
+      details: parsed.error.issues
+        .slice(0, 10)
+        .map((i) => ({ path: i.path.join('.'), message: i.message })),
+    });
   }
+
+  if (!anthropic) return respond({ markdown: ruleBasedReport(payload), source: 'fallback-no-ai' });
 
   // Enriquecer payload da sessão com derived metrics ANTES de passar pro Claude
   const enriched = enrichSessionPayload(payload);
 
   try {
     const md = await callClaudeV2(enriched);
-    return res.json({
-      markdown: md,
-      source: 'claude-v2',
-      model: ANTHROPIC_MODEL,
-    });
+    return respond({ markdown: md, source: 'claude-v2', model: ANTHROPIC_MODEL });
   } catch (e) {
-    console.error('[v2/report] Claude err:', e.message);
-    return res.json({
+    const timedOut = e.name === 'AbortError' || /abort/i.test(e.message || '');
+    logEvent('claude.error', { route: '/v2/report', timedOut, message: e.message });
+    return respond({
       markdown: ruleBasedReport(payload),
-      source: 'fallback-error',
+      source: timedOut ? 'timeout' : 'fallback-error',
       error: e.message,
     });
   }
@@ -279,26 +628,46 @@ function enrichSessionPayload(p) {
 
   // Best-effort: nunca derruba o report se algum campo faltar.
   try {
-    const TENSION = ['hesitation', 'uncertainty', 'stress', 'confusion', 'disagreement', 'frustration', 'skepticism', 'disengagement'];
+    const TENSION = [
+      'hesitation',
+      'uncertainty',
+      'stress',
+      'confusion',
+      'disagreement',
+      'frustration',
+      'skepticism',
+      'disengagement',
+    ];
     const POSITIVE = ['confidence', 'engagement', 'interest', 'agreement'];
     const probWeights = { low: 1, medium: 2, high: 3 };
     const summary = Array.isArray(p.signal_summary) ? p.signal_summary : [];
 
     // Intensidade média por sinal (1=low, 2=med, 3=high), a partir do signal_summary
     if (Array.isArray(p.top_signals)) {
-      out.top_signals = p.top_signals.map(s => {
-        const sum = summary.find(x => x && x.type === s.type);
+      out.top_signals = p.top_signals.map((s) => {
+        const sum = summary.find((x) => x && x.type === s.type);
         const probs = (sum && sum.probabilities) || [];
-        const avg = probs.length ? probs.reduce((a, x) => a + (probWeights[x] || 0), 0) / probs.length : null;
+        const avg = probs.length
+          ? probs.reduce((a, x) => a + (probWeights[x] || 0), 0) / probs.length
+          : null;
         return { ...s, avg_intensity: avg != null ? Math.round(avg * 100) / 100 : null };
       });
     }
 
     // Sinais dominantes por categoria (ancoram o prompt)
     const ranked = [...summary].sort((a, b) => (b.count || 0) - (a.count || 0));
-    out.dominant_signal = (p.top_signals && p.top_signals[0] && p.top_signals[0].type) || (ranked[0] && ranked[0].type) || null;
-    out.tension_signals = ranked.filter(s => TENSION.includes(s.type)).slice(0, 3).map(s => s.type);
-    out.positive_signals = ranked.filter(s => POSITIVE.includes(s.type)).slice(0, 3).map(s => s.type);
+    out.dominant_signal =
+      (p.top_signals && p.top_signals[0] && p.top_signals[0].type) ||
+      (ranked[0] && ranked[0].type) ||
+      null;
+    out.tension_signals = ranked
+      .filter((s) => TENSION.includes(s.type))
+      .slice(0, 3)
+      .map((s) => s.type);
+    out.positive_signals = ranked
+      .filter((s) => POSITIVE.includes(s.type))
+      .slice(0, 3)
+      .map((s) => s.type);
   } catch {
     /* enriquecimento é opcional — segue com o payload cru */
   }
@@ -359,29 +728,29 @@ ${JSON.stringify(payload, null, 2)}
 
 Produz o perfilamento agora, seguindo a estrutura exata.`;
 
-  const resp = await anthropic.messages.create({
+  const resp = await claudeCreate({
     model: ANTHROPIC_MODEL,
     max_tokens: 2400,
     temperature: 0.7,
     system,
     messages: [{ role: 'user', content: user }],
   });
-  return (resp.content.find(c => c.type === 'text')?.text || '').trim();
+  return (resp.content.find((c) => c.type === 'text')?.text || '').trim();
 }
 
 function ruleBasedReport(p) {
-  const top = (p.top_signals?.[0]?.type) || 'sinal indeterminado';
+  const top = p.top_signals?.[0]?.type || 'sinal indeterminado';
   const topCount = p.top_signals?.[0]?.count || 0;
   const engPct = p.engagement_pct?.engaged ?? 0;
   const cqi = p.cqi?.quality_index != null ? Math.round(p.cqi.quality_index) : '—';
   const voice = p.voice_activity_pct;
   const dims = p.cqi || {};
-  const topDim = ['clarity','authority','energy','rapport','learning']
-    .filter(d => dims[d] != null)
-    .sort((a,b) => (dims[b] ?? 0) - (dims[a] ?? 0))[0];
+  const topDim = ['clarity', 'authority', 'energy', 'rapport', 'learning']
+    .filter((d) => dims[d] != null)
+    .sort((a, b) => (dims[b] ?? 0) - (dims[a] ?? 0))[0];
   const list = (p.signal_summary || p.top_signals || [])
     .slice(0, 5)
-    .map(s => `- **${s.type}** — ${s.count}x`)
+    .map((s) => `- **${s.type}** — ${s.count}x`)
     .join('\n');
 
   return `# 🧠 Leitura comportamental
@@ -411,6 +780,7 @@ wss.on('connection', (client, req) => {
   // Origin allowlist first (cheapest check)
   if (ALLOWED_ORIGINS.length && !ALLOWED_ORIGINS.includes(origin)) {
     log(clientId, 'REJECT origin', { origin });
+    logEvent('ws.reject', { clientId, reason: 'origin', origin });
     rejectClient(client, 4403, 'origin_not_allowed', 'origin não permitido');
     return;
   }
@@ -419,16 +789,22 @@ wss.on('connection', (client, req) => {
   let authedBy = null;
   let authedEmail = null;
   const tokenPayload = t ? verifyToken(t) : null;
-  if (tokenPayload) { authedBy = 'token'; authedEmail = tokenPayload.email; }
-  else if (PASSCODE && p === PASSCODE) { authedBy = 'passcode'; }
+  if (tokenPayload) {
+    authedBy = 'token';
+    authedEmail = tokenPayload.email;
+  } else if (PASSCODE && p === PASSCODE) {
+    authedBy = 'passcode';
+  }
 
   if (!authedBy && (PASSCODE || USERS.size)) {
     log(clientId, 'REJECT auth', { origin, hadToken: Boolean(t), hadPasscode: Boolean(p) });
+    logEvent('ws.reject', { clientId, reason: 'auth', hadToken: Boolean(t) });
     rejectClient(client, 4401, 'invalid_credentials', 'token ou passcode inválido');
     return;
   }
 
   log(clientId, 'browser conectado', { origin: origin || '(none)', authedBy, authedEmail });
+  logEvent('ws.connect', { clientId, authedBy, origin: origin || null });
 
   const upstream = new WebSocket(UPSTREAM_URL, {
     headers: { Authorization: `Bearer ${API_KEY}` },
@@ -438,8 +814,21 @@ wss.on('connection', (client, req) => {
   let upstreamOpen = false;
   const pendingFromClient = [];
 
+  // Circuit breaker: se o upstream Interhuman não abrir em 10s, fecha o cliente
+  // com 4504 (evita ficar pendurado indefinidamente).
+  const upstreamTimeout = setTimeout(() => {
+    if (!upstreamOpen) {
+      logEvent('ws.upstream_timeout', { clientId });
+      rejectClient(client, 4504, 'upstream_timeout', 'upstream não respondeu a tempo');
+      try {
+        upstream.terminate();
+      } catch {}
+    }
+  }, 10000);
+
   upstream.on('open', () => {
     upstreamOpen = true;
+    clearTimeout(upstreamTimeout);
     log(clientId, 'upstream Interhuman OPEN');
     safeSend(client, JSON.stringify({ type: 'proxy.upstream_open' }));
     for (const msg of pendingFromClient) upstream.send(msg);
@@ -452,20 +841,29 @@ wss.on('connection', (client, req) => {
   });
 
   upstream.on('close', (code, reason) => {
+    clearTimeout(upstreamTimeout);
     log(clientId, 'upstream CLOSE', code, reason?.toString?.());
-    safeSend(client, JSON.stringify({
-      type: 'proxy.upstream_close',
-      data: { code, reason: reason?.toString?.() || '' },
-    }));
-    try { client.close(); } catch {}
+    safeSend(
+      client,
+      JSON.stringify({
+        type: 'proxy.upstream_close',
+        data: { code, reason: reason?.toString?.() || '' },
+      }),
+    );
+    try {
+      client.close();
+    } catch {}
   });
 
   upstream.on('error', (err) => {
     log(clientId, 'upstream ERROR', err.message);
-    safeSend(client, JSON.stringify({
-      type: 'proxy.upstream_error',
-      data: { message: err.message },
-    }));
+    safeSend(
+      client,
+      JSON.stringify({
+        type: 'proxy.upstream_error',
+        data: { message: err.message },
+      }),
+    );
   });
 
   client.on('message', (data, isBinary) => {
@@ -475,43 +873,84 @@ wss.on('connection', (client, req) => {
   });
 
   client.on('close', (code, reason) => {
+    clearTimeout(upstreamTimeout);
     log(clientId, 'browser CLOSE', code, reason?.toString?.());
-    try { upstream.close(); } catch {}
+    try {
+      upstream.close();
+    } catch {}
   });
 
   client.on('error', (err) => {
     log(clientId, 'browser ERROR', err.message);
-    try { upstream.close(); } catch {}
+    try {
+      upstream.close();
+    } catch {}
   });
 });
 
 function safeSend(ws, data, opts) {
   if (ws.readyState === WebSocket.OPEN) {
-    try { ws.send(data, opts); } catch (e) { console.error('send err', e.message); }
+    try {
+      ws.send(data, opts);
+    } catch (e) {
+      console.error('send err', e.message);
+    }
   }
 }
 
 function rejectClient(client, code, reasonCode, reasonText) {
   // Envia mensagem JSON pro browser entender ANTES de fechar (cloudflare etc.
   // costuma stripar custom close codes, então mandar JSON é mais robusto).
-  safeSend(client, JSON.stringify({
-    type: 'proxy.auth_rejected',
-    data: { code, reason: reasonCode, message: reasonText },
-  }));
-  try { client.close(code, reasonCode); } catch {}
+  safeSend(
+    client,
+    JSON.stringify({
+      type: 'proxy.auth_rejected',
+      data: { code, reason: reasonCode, message: reasonText },
+    }),
+  );
+  try {
+    client.close(code, reasonCode);
+  } catch {}
 }
 
 function log(id, ...args) {
   console.log(`[${new Date().toISOString()}] [${id}]`, ...args);
 }
 
-server.listen(PORT, () => {
-  console.log(`\n  Interhuman Signals proxy + report + auth rodando em :${PORT}`);
-  console.log(`  Upstream: ${UPSTREAM_URL}`);
-  console.log(`  Chave Interhuman: ${API_KEY.slice(0, 12)}...${API_KEY.slice(-4)}`);
-  console.log(`  Passcode WS: ${PASSCODE ? 'EXIGIDO' : 'desligado'}`);
-  console.log(`  Origins permitidos: ${ALLOWED_ORIGINS.length ? ALLOWED_ORIGINS.join(', ') : '(qualquer)'}`);
-  console.log(`  Auth /auth: ${USERS.size ? `${USERS.size} usuário(s) configurado(s)` : 'desligado (USERS vazio)'}`);
-  console.log(`  Token TTL: ${TOKEN_TTL_HOURS}h (com rememberMe: 720h)`);
-  console.log(`  Report IA: ${ANTHROPIC_API_KEY ? `${ANTHROPIC_MODEL} via Anthropic SDK` : 'desligado (fallback rule-based)'}\n`);
+// Inicializa o banco (schema + seed do admin) antes de aceitar conexões.
+async function bootstrapDb() {
+  try {
+    await initDb();
+    const seed = await seedAdmin();
+    logEvent('db.ready', {
+      mode: DB_MODE,
+      seededAdmin: seed.seeded,
+      note: seed.reason || seed.email,
+    });
+  } catch (e) {
+    logEvent('db.error', { op: 'bootstrap', message: e.message });
+    console.error('[db] falha ao inicializar o banco:', e.message);
+  }
+}
+
+bootstrapDb().finally(() => {
+  server.listen(PORT, () => {
+    console.log(`\n  Interhuman Signals proxy + report + auth rodando em :${PORT}`);
+    console.log(`  Upstream: ${UPSTREAM_URL}`);
+    console.log(`  Chave Interhuman: ${API_KEY.slice(0, 12)}...${API_KEY.slice(-4)}`);
+    console.log(
+      `  Banco (usuários/papéis): ${DB_MODE === 'turso' ? 'Turso remoto' : 'SQLite local (dev)'}`,
+    );
+    console.log(`  Passcode WS: ${PASSCODE ? 'EXIGIDO' : 'desligado'}`);
+    console.log(
+      `  Origins permitidos: ${ALLOWED_ORIGINS.length ? ALLOWED_ORIGINS.join(', ') : '(qualquer)'}`,
+    );
+    console.log(
+      `  Auth /auth: banco${USERS.size ? ` + ${USERS.size} usuário(s) legado(s) em env` : ''}`,
+    );
+    console.log(`  Token TTL: ${TOKEN_TTL_HOURS}h (com rememberMe: 720h)`);
+    console.log(
+      `  Report IA: ${ANTHROPIC_API_KEY ? `${ANTHROPIC_MODEL} via Anthropic SDK` : 'desligado (fallback rule-based)'}\n`,
+    );
+  });
 });

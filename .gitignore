@@ -8,3 +8,4 @@ npm-debug.log*
 upload-payload.json
 .read-ai-state.json
 .claude/
+data/

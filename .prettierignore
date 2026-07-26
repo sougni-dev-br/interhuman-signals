@@ -1,0 +1,7 @@
+node_modules/
+package-lock.json
+coverage/
+.husky/
+*.md
+# HTML de produção é hand-tuned e whitespace-sensitive — fora do prettier.
+*.html
