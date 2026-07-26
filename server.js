@@ -277,41 +277,30 @@ app.post('/v2/report', async (req, res) => {
 function enrichSessionPayload(p) {
   const out = { ...p };
 
-  // Top signals com média de probabilidade
-  if (p.top_signals && p.per_question) {
-    const probMap = new Map();
+  // Best-effort: nunca derruba o report se algum campo faltar.
+  try {
+    const TENSION = ['hesitation', 'uncertainty', 'stress', 'confusion', 'disagreement', 'frustration', 'skepticism', 'disengagement'];
+    const POSITIVE = ['confidence', 'engagement', 'interest', 'agreement'];
     const probWeights = { low: 1, medium: 2, high: 3 };
-    for (const q of (p.per_question || [])) {
-      for (const sig of (q.signals || [])) {
-        const probs = sig.probabilities || [];
-        const sum = probs.reduce((s, x) => s + (probWeights[x] || 0), 0);
-        if (!probMap.has(sig.type)) probMap.set(sig.type, { sum: 0, n: 0 });
-        const e = probMap.get(sig.type);
-        e.sum += sum;
-        e.n += probs.length;
-      }
-    }
-    out.top_signals = p.top_signals.map(s => {
-      const m = probMap.get(s.type);
-      return {
-        ...s,
-        avg_intensity: m && m.n ? Math.round(m.sum / m.n * 100) / 100 : null,  // 1=low 2=med 3=high
-      };
-    });
-  }
+    const summary = Array.isArray(p.signal_summary) ? p.signal_summary : [];
 
-  // Padrão por pergunta
-  if (p.per_question) {
-    out.questions_answered = p.per_question.filter(q => q.really_answered).length;
-    out.avg_audio_activity = Math.round(
-      p.per_question.reduce((s, q) => s + (q.audio_activity || 0), 0) / Math.max(1, p.per_question.length) * 100
-    ) / 100;
-    // Pergunta mais silenciosa, mais falada, com mais sinais
-    const sorted = [...p.per_question].sort((a, b) => (a.audio_activity || 0) - (b.audio_activity || 0));
-    out.most_silent_question = sorted[0]?.idx;
-    out.most_talkative_question = sorted[sorted.length - 1]?.idx;
-    const bySignalsCount = [...p.per_question].sort((a, b) => (b.signals?.length || 0) - (a.signals?.length || 0));
-    out.most_reactive_question = bySignalsCount[0]?.idx;
+    // Intensidade média por sinal (1=low, 2=med, 3=high), a partir do signal_summary
+    if (Array.isArray(p.top_signals)) {
+      out.top_signals = p.top_signals.map(s => {
+        const sum = summary.find(x => x && x.type === s.type);
+        const probs = (sum && sum.probabilities) || [];
+        const avg = probs.length ? probs.reduce((a, x) => a + (probWeights[x] || 0), 0) / probs.length : null;
+        return { ...s, avg_intensity: avg != null ? Math.round(avg * 100) / 100 : null };
+      });
+    }
+
+    // Sinais dominantes por categoria (ancoram o prompt)
+    const ranked = [...summary].sort((a, b) => (b.count || 0) - (a.count || 0));
+    out.dominant_signal = (p.top_signals && p.top_signals[0] && p.top_signals[0].type) || (ranked[0] && ranked[0].type) || null;
+    out.tension_signals = ranked.filter(s => TENSION.includes(s.type)).slice(0, 3).map(s => s.type);
+    out.positive_signals = ranked.filter(s => POSITIVE.includes(s.type)).slice(0, 3).map(s => s.type);
+  } catch {
+    /* enriquecimento é opcional — segue com o payload cru */
   }
 
   // Tempo do dia (sutil, mas útil)
@@ -322,52 +311,53 @@ function enrichSessionPayload(p) {
 }
 
 async function callClaudeV2(payload) {
-  const system = `Você é um analista comportamental que produz perfilamentos densos, surpreendentes e respeitosos de uma sessão de 2 minutos. A pessoa respondeu 5 perguntas provocativas com a câmera ligada — sinais sociais foram detectados pela Interhuman AI em tempo real.
+  const system = `Você é um analista comportamental que produz perfilamentos densos, surpreendentes e respeitosos a partir de uma LEITURA DE OBSERVAÇÃO de ~1-2 minutos. A pessoa apareceu na câmera e falou/agiu naturalmente — NENHUMA pergunta foi feita. Todos os sinais vêm SÓ do vídeo e do áudio (linguagem corporal, microexpressões, tom de voz, presença), detectados pela Interhuman AI em tempo real. Você NÃO tem perguntas nem respostas — apenas a leitura comportamental.
 
-Você recebe um JSON com TODAS as variáveis disponíveis da sessão:
-- duration_s, hour_local, time_of_day
+Você recebe um JSON com TODAS as variáveis observadas:
+- duration_s, voice_activity_pct (% do tempo com voz detectada), hour_local, time_of_day
 - cqi (quality_index 0-100 + 5 dimensões: clarity, authority, energy, rapport, learning)
-- engagement_pct (% engaged/neutral/disengaged ao longo da sessão)
+- engagement_pct (% engaged/neutral/disengaged ao longo da leitura)
 - top_signals (até 5, com count e avg_intensity 1-3)
-- per_question[5]: cada uma com question text, duration_s, audio_activity 0-1,
-  really_answered, signals[], engagement_changes[]
-- questions_answered, avg_audio_activity, most_silent_question, most_talkative_question,
-  most_reactive_question — derivados pra você usar diretamente
+- signal_summary (todos os sinais detectados na sessão, com count e probabilidades)
+- dominant_signal, tension_signals[], positive_signals[] — derivados pra você ancorar
 - raw_signal_count
 
-Concentre-se totalmente nos dados da sessão atual — não invente comparações com dados que não existem. Use as variáveis derivadas (most_silent_question, most_talkative_question, most_reactive_question, avg_audio_activity) pra ancorar observações específicas.
+Concentre-se SÓ nos dados desta leitura — NUNCA invente perguntas, falas ou comparações que não existem. Nunca finja que houve conversa, entrevista ou perguntas. Se um dado faltar, seja honesto e breve.
 
 REGRAS DE OUTPUT:
 - Markdown puro (sem code fences)
-- ~400-500 palavras
+- ~350-450 palavras
 - Português BR, "você"
 - Seções (ordem rígida):
 
 # 🧠 [ARQUÉTIPO em 4-6 palavras provocativas]
 
-[uma linha de hard data: CQI + sinais top + tempo falado]
+[uma linha de hard data: CQI + sinais dominantes + % do tempo falando + engajamento]
 
-## O que você DISSE × O que vimos
-3-5 contrastes específicos pergunta-a-pergunta. Sinalize a pergunta mais silenciosa (most_silent_question) e a mais reativa (most_reactive_question):
-- **"[pergunta resumida]"** → DISSE: [inferência sobre fala + audio_activity] · MOSTROU: [sinal dominante + avg_intensity + interpretação]
+## Como você se apresenta
+1 parágrafo (3-4 frases) sobre a leitura geral — a presença, a energia e o que a câmera capta em você antes de qualquer palavra. Ancore em engagement_pct e nas dimensões CQI mais altas.
+
+## O que seu corpo e sua voz entregaram
+3-5 observações específicas dos sinais dominantes (use signal_summary/top_signals + avg_intensity). Formato:
+- **[sinal]** (Nx) → [o que esse padrão sugere no comportamento]
 
 ## Sua fragilidade oculta
-1 parágrafo (3-4 frases) sobre o sinal recorrente que apareceu sem você perceber. Foque na análise da sessão; cite a(s) pergunta(s) em que apareceu.
+1 parágrafo (3-4 frases) sobre o sinal de tensão recorrente (tension_signals: hesitation/uncertainty/stress/confusion/etc.) que apareceu sem você perceber. Cite o sinal e a intensidade.
 
 ## Seu superpoder de comunicação
-1 parágrafo sobre a dimensão CQI mais alta. Use ancoragem em dados da sessão (qual pergunta acendeu mais).
+1 parágrafo sobre a dimensão CQI mais alta cruzada com o sinal positivo dominante (positive_signals: confidence/engagement/interest/agreement).
 
 ## O conselho que você não pediu
-Uma frase acionável específica.
+Uma frase acionável e específica, baseada no padrão observado.
 
-TOM: surpreender com insights NÃO-óbvios, jamais ofender, ser específico (use números). Não enrole, não use clichês motivacionais.`;
+TOM: surpreender com insights NÃO-óbvios, jamais ofender, ser específico (use números e nomes dos sinais). Não enrole, não use clichês motivacionais.`;
 
-  const user = `## SESSÃO ATUAL (todas as variáveis)
+  const user = `## LEITURA DE OBSERVAÇÃO (só vídeo + áudio, sem perguntas)
 \`\`\`json
 ${JSON.stringify(payload, null, 2)}
 \`\`\`
 
-Produz o perfilamento agora.`;
+Produz o perfilamento agora, seguindo a estrutura exata.`;
 
   const resp = await anthropic.messages.create({
     model: ANTHROPIC_MODEL,
@@ -384,23 +374,27 @@ function ruleBasedReport(p) {
   const topCount = p.top_signals?.[0]?.count || 0;
   const engPct = p.engagement_pct?.engaged ?? 0;
   const cqi = p.cqi?.quality_index != null ? Math.round(p.cqi.quality_index) : '—';
-  const answered = (p.per_question || []).filter(q => q.really_answered).length;
+  const voice = p.voice_activity_pct;
   const dims = p.cqi || {};
   const topDim = ['clarity','authority','energy','rapport','learning']
     .filter(d => dims[d] != null)
     .sort((a,b) => (dims[b] ?? 0) - (dims[a] ?? 0))[0];
+  const list = (p.signal_summary || p.top_signals || [])
+    .slice(0, 5)
+    .map(s => `- **${s.type}** — ${s.count}x`)
+    .join('\n');
 
-  return `# 🧠 Perfilamento rápido
+  return `# 🧠 Leitura comportamental
 
-CQI ${cqi}/100 · ${engPct}% engajado · ${p.raw_signal_count || 0} sinais ao longo de ${p.duration_s}s · respondeu ${answered}/${(p.per_question||[]).length} perguntas.
+CQI ${cqi}/100 · ${engPct}% engajado · ${p.raw_signal_count || 0} sinais${voice != null ? ` · ${voice}% do tempo falando` : ''} ao longo de ${p.duration_s}s.
 
-## O que vimos
-O sinal mais recorrente foi **${top}** com ${topCount} ocorrência(s). Sua dimensão CQI mais forte foi **${topDim || '—'}** (${topDim ? Math.round(dims[topDim]) : '—'}/100).
+## O que a câmera captou
+O sinal dominante foi **${top}** (${topCount}x). Sua dimensão CQI mais forte foi **${topDim || '—'}** (${topDim ? Math.round(dims[topDim]) : '—'}/100).
 
-## Resposta por pergunta
-${(p.per_question || []).map(q => `- **${q.idx}.** ${q.really_answered ? '✓ respondeu' : '✗ silenciou'} · ${Math.round((q.audio_activity || 0) * 100)}% voz · sinais: ${(q.signals || []).map(s => s.type).join(', ') || 'nenhum'}`).join('\n')}
+## Sinais mais frequentes
+${list || '- (nenhum sinal detectado nesta leitura)'}
 
-*Report gerado pelo backend em modo fallback — sem IA conectada. Configure ANTHROPIC_API_KEY no Render pra ativar o perfilamento turbinado.*`;
+*Report gerado pelo backend em modo fallback — sem IA conectada. Configure ANTHROPIC_API_KEY no Render pra ativar o perfilamento completo.*`;
 }
 
 // ============= WS proxy =============
