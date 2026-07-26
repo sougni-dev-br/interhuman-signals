@@ -22,6 +22,14 @@ services:
         sync: false
       - key: ANTHROPIC_API_KEY    # perfilamento Claude; sem ela cai no rule-based
         sync: false
+      - key: TURSO_DATABASE_URL   # banco de usuários/papéis (libsql://... do Turso)
+        sync: false
+      - key: TURSO_AUTH_TOKEN     # token do banco Turso
+        sync: false
+      - key: ADMIN_EMAIL          # seed do 1º admin (só na 1ª subida com banco vazio)
+        sync: false
+      - key: ADMIN_PASSWORD       # senha do 1º admin (troque depois pelo painel)
+        sync: false
       # --- Config não-secreta ---
       - key: ANTHROPIC_MODEL
         value: claude-sonnet-4-6

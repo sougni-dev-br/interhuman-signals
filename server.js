@@ -16,6 +16,19 @@ import Anthropic from '@anthropic-ai/sdk';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import { z } from 'zod';
+import {
+  initDb,
+  seedAdmin,
+  DB_MODE,
+  getUserByEmail,
+  verifyPassword,
+  listUsers,
+  createUser,
+  updateUser,
+  deleteUser,
+  getUserById,
+  VALID_ROLES,
+} from './db.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -231,7 +244,7 @@ app.options('/auth', (req, res) => {
   });
   res.status(204).end();
 });
-app.post('/auth', authLimiter, (req, res) => {
+app.post('/auth', authLimiter, async (req, res) => {
   if (!checkOrigin(req)) return res.status(403).json({ error: 'origin not allowed' });
   res.set('Access-Control-Allow-Origin', corsAllowOrigin(req));
 
@@ -247,12 +260,34 @@ app.post('/auth', authLimiter, (req, res) => {
   }
 
   if (!email || !password) return res.status(400).json({ error: 'email e senha são obrigatórios' });
-  if (!USERS.size)
-    return res.status(503).json({ error: 'auth não configurado no servidor (USERS vazio)' });
 
-  const stored = USERS.get(String(email).trim().toLowerCase());
-  // Comparação constant-time: AMBOS os lados sempre com exatamente 64 bytes,
-  // então timingSafeEqual nunca lança (senha vazia ou > 64 chars → 401 limpo).
+  const em = String(email).trim().toLowerCase();
+  const ttlHours = rememberMe ? 24 * 30 : TOKEN_TTL_HOURS;
+  const exp = Math.floor(Date.now() / 1000) + ttlHours * 3600;
+
+  // 1) Banco (fonte de verdade — usuários gerenciados pelo admin)
+  try {
+    const u = await getUserByEmail(em);
+    if (u) {
+      if (Number(u.active) !== 1) {
+        logEvent('auth.fail', { ip: clientIp(req), email: em, reason: 'inactive' });
+        return res.status(403).json({ error: 'conta desativada' });
+      }
+      if (verifyPassword(password, u.password_hash)) {
+        const token = signToken({ email: em, exp, role: u.role });
+        logEvent('auth.success', { role: u.role, email: em, ip: clientIp(req), src: 'db' });
+        return res.json({ ok: true, token, email: em, exp, role: u.role });
+      }
+      logEvent('auth.fail', { ip: clientIp(req), email: em, reason: 'bad_password' });
+      return res.status(401).json({ error: 'email ou senha inválidos' });
+    }
+  } catch (e) {
+    logEvent('db.error', { op: 'auth.lookup', message: e.message });
+    // segue pro fallback de env abaixo
+  }
+
+  // 2) Fallback legado: env USERS (compat durante a transição)
+  const stored = USERS.get(em);
   const fixed64 = (s) => {
     const b = Buffer.alloc(64);
     Buffer.from(String(s), 'utf8').copy(b, 0, 0, 64);
@@ -260,15 +295,126 @@ app.post('/auth', authLimiter, (req, res) => {
   };
   const ok = Boolean(stored) && crypto.timingSafeEqual(fixed64(stored), fixed64(password));
   if (!ok) {
-    logEvent('auth.fail', { ip: clientIp(req), email: String(email).slice(0, 80) });
+    logEvent('auth.fail', { ip: clientIp(req), email: em.slice(0, 80) });
     return res.status(401).json({ error: 'email ou senha inválidos' });
   }
+  const token = signToken({ email: em, exp, role: 'user' });
+  logEvent('auth.success', { role: 'user', email: em, ip: clientIp(req), src: 'env' });
+  return res.json({ ok: true, token, email: em, exp, role: 'user' });
+});
 
-  const ttlHours = rememberMe ? 24 * 30 : TOKEN_TTL_HOURS;
-  const exp = Math.floor(Date.now() / 1000) + ttlHours * 3600;
-  const token = signToken({ email: email.toLowerCase(), exp, role: 'user' });
-  logEvent('auth.success', { role: 'user', email: email.toLowerCase(), ip: clientIp(req) });
-  return res.json({ ok: true, token, email: email.toLowerCase(), exp, role: 'user' });
+// ============= Admin — CRUD de usuários (só role=admin) =============
+function requireAdmin(req, res, next) {
+  requireToken(req, res, () => {
+    if (req.user?.role !== 'admin') {
+      logEvent('admin.forbidden', { email: req.user?.email, ip: clientIp(req) });
+      return res.status(403).json({ error: 'forbidden' });
+    }
+    next();
+  });
+}
+
+const adminUserSchema = z.object({
+  email: z.string().email().max(200),
+  password: z.string().min(6).max(200),
+  role: z.enum(['admin', 'user', 'guest']).default('user'),
+});
+const adminPatchSchema = z
+  .object({
+    role: z.enum(['admin', 'user', 'guest']).optional(),
+    active: z.boolean().optional(),
+    password: z.string().min(6).max(200).optional(),
+  })
+  .refine((o) => Object.keys(o).length > 0, { message: 'nada para atualizar' });
+
+app.options(['/admin/users', '/admin/users/:id'], (req, res) => {
+  res.set({
+    'Access-Control-Allow-Origin': corsAllowOrigin(req),
+    'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Max-Age': '600',
+  });
+  res.status(204).end();
+});
+
+app.get('/admin/users', requireAdmin, async (req, res) => {
+  res.set('Access-Control-Allow-Origin', corsAllowOrigin(req));
+  try {
+    res.json({ ok: true, roles: VALID_ROLES, users: await listUsers() });
+  } catch (e) {
+    logEvent('db.error', { op: 'listUsers', message: e.message });
+    res.status(500).json({ error: 'db_error' });
+  }
+});
+
+app.post('/admin/users', requireAdmin, async (req, res) => {
+  res.set('Access-Control-Allow-Origin', corsAllowOrigin(req));
+  const parsed = adminUserSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: 'invalid_payload',
+      details: parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
+    });
+  }
+  try {
+    const existing = await getUserByEmail(parsed.data.email);
+    if (existing) return res.status(409).json({ error: 'email já cadastrado' });
+    const user = await createUser(parsed.data);
+    logEvent('admin.user.create', { by: req.user.email, email: user.email, role: user.role });
+    res.status(201).json({ ok: true, user });
+  } catch (e) {
+    logEvent('db.error', { op: 'createUser', message: e.message });
+    res.status(500).json({ error: 'db_error' });
+  }
+});
+
+app.patch('/admin/users/:id', requireAdmin, async (req, res) => {
+  res.set('Access-Control-Allow-Origin', corsAllowOrigin(req));
+  const parsed = adminPatchSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: 'invalid_payload',
+      details: parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
+    });
+  }
+  try {
+    const target = await getUserById(req.params.id);
+    if (!target) return res.status(404).json({ error: 'não encontrado' });
+    // trava de segurança: não permitir remover o próprio status de admin/desativar-se
+    if (
+      target.email === req.user.email &&
+      (parsed.data.role === 'user' || parsed.data.active === false)
+    ) {
+      return res.status(400).json({ error: 'você não pode rebaixar/desativar a própria conta' });
+    }
+    const user = await updateUser(req.params.id, parsed.data);
+    logEvent('admin.user.update', {
+      by: req.user.email,
+      id: user.id,
+      changes: Object.keys(parsed.data),
+    });
+    res.json({ ok: true, user });
+  } catch (e) {
+    logEvent('db.error', { op: 'updateUser', message: e.message });
+    res.status(500).json({ error: 'db_error' });
+  }
+});
+
+app.delete('/admin/users/:id', requireAdmin, async (req, res) => {
+  res.set('Access-Control-Allow-Origin', corsAllowOrigin(req));
+  try {
+    const target = await getUserById(req.params.id);
+    if (!target) return res.status(404).json({ error: 'não encontrado' });
+    if (target.email === req.user.email) {
+      return res.status(400).json({ error: 'você não pode excluir a própria conta' });
+    }
+    await deleteUser(req.params.id);
+    logEvent('admin.user.delete', { by: req.user.email, id: Number(req.params.id) });
+    res.json({ ok: true });
+  } catch (e) {
+    logEvent('db.error', { op: 'deleteUser', message: e.message });
+    res.status(500).json({ error: 'db_error' });
+  }
 });
 
 // ============= /report — gera perfilamento via Claude =============
@@ -764,19 +910,40 @@ function log(id, ...args) {
   console.log(`[${new Date().toISOString()}] [${id}]`, ...args);
 }
 
-server.listen(PORT, () => {
-  console.log(`\n  Interhuman Signals proxy + report + auth rodando em :${PORT}`);
-  console.log(`  Upstream: ${UPSTREAM_URL}`);
-  console.log(`  Chave Interhuman: ${API_KEY.slice(0, 12)}...${API_KEY.slice(-4)}`);
-  console.log(`  Passcode WS: ${PASSCODE ? 'EXIGIDO' : 'desligado'}`);
-  console.log(
-    `  Origins permitidos: ${ALLOWED_ORIGINS.length ? ALLOWED_ORIGINS.join(', ') : '(qualquer)'}`,
-  );
-  console.log(
-    `  Auth /auth: ${USERS.size ? `${USERS.size} usuário(s) configurado(s)` : 'desligado (USERS vazio)'}`,
-  );
-  console.log(`  Token TTL: ${TOKEN_TTL_HOURS}h (com rememberMe: 720h)`);
-  console.log(
-    `  Report IA: ${ANTHROPIC_API_KEY ? `${ANTHROPIC_MODEL} via Anthropic SDK` : 'desligado (fallback rule-based)'}\n`,
-  );
+// Inicializa o banco (schema + seed do admin) antes de aceitar conexões.
+async function bootstrapDb() {
+  try {
+    await initDb();
+    const seed = await seedAdmin();
+    logEvent('db.ready', {
+      mode: DB_MODE,
+      seededAdmin: seed.seeded,
+      note: seed.reason || seed.email,
+    });
+  } catch (e) {
+    logEvent('db.error', { op: 'bootstrap', message: e.message });
+    console.error('[db] falha ao inicializar o banco:', e.message);
+  }
+}
+
+bootstrapDb().finally(() => {
+  server.listen(PORT, () => {
+    console.log(`\n  Interhuman Signals proxy + report + auth rodando em :${PORT}`);
+    console.log(`  Upstream: ${UPSTREAM_URL}`);
+    console.log(`  Chave Interhuman: ${API_KEY.slice(0, 12)}...${API_KEY.slice(-4)}`);
+    console.log(
+      `  Banco (usuários/papéis): ${DB_MODE === 'turso' ? 'Turso remoto' : 'SQLite local (dev)'}`,
+    );
+    console.log(`  Passcode WS: ${PASSCODE ? 'EXIGIDO' : 'desligado'}`);
+    console.log(
+      `  Origins permitidos: ${ALLOWED_ORIGINS.length ? ALLOWED_ORIGINS.join(', ') : '(qualquer)'}`,
+    );
+    console.log(
+      `  Auth /auth: banco${USERS.size ? ` + ${USERS.size} usuário(s) legado(s) em env` : ''}`,
+    );
+    console.log(`  Token TTL: ${TOKEN_TTL_HOURS}h (com rememberMe: 720h)`);
+    console.log(
+      `  Report IA: ${ANTHROPIC_API_KEY ? `${ANTHROPIC_MODEL} via Anthropic SDK` : 'desligado (fallback rule-based)'}\n`,
+    );
+  });
 });
