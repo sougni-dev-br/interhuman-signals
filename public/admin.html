@@ -548,12 +548,13 @@
             const delBtn = isSelf
               ? ''
               : `<button class="btn btn-danger btn-sm" data-act="del" data-id="${u.id}" data-email="${esc(u.email)}">excluir</button>`;
+            const passBtn = `<button class="btn btn-ghost btn-sm" data-act="pass" data-id="${u.id}" data-email="${esc(u.email)}">senha</button>`;
             return `<tr>
               <td class="email">${esc(u.email)} ${you}</td>
               <td>${roleSelect(u)}</td>
               <td>${statusBadge}</td>
               <td class="muted">${fmtDate(u.created_at)}</td>
-              <td><div class="actions">${toggleBtn}${delBtn}</div></td>
+              <td><div class="actions">${passBtn}${toggleBtn}${delBtn}</div></td>
             </tr>`;
           })
           .join('');
@@ -628,6 +629,19 @@
             await api('/admin/users/' + id, { method: 'DELETE' });
             toast('Usuário excluído.');
             load();
+          } catch (e) {
+            toast(e.message, true);
+          }
+        } else if (btn.dataset.act === 'pass') {
+          const np = prompt('Nova senha para ' + btn.dataset.email + ' (mín. 6 caracteres):');
+          if (np == null) return; // cancelou
+          if (np.length < 6) {
+            toast('A senha precisa ter no mínimo 6 caracteres.', true);
+            return;
+          }
+          try {
+            await api('/admin/users/' + id, { method: 'PATCH', body: JSON.stringify({ password: np }) });
+            toast('Senha atualizada. Use a nova senha no próximo login.');
           } catch (e) {
             toast(e.message, true);
           }
