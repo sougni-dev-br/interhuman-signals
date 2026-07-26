@@ -5,11 +5,17 @@ services:
   - type: web
     name: ego-backend
     runtime: node
-    plan: free
+    plan: starter                # sempre-ligado (sem cold-start) + habilita disco
     region: oregon
     buildCommand: npm install --omit=dev
     startCommand: node server.js
     healthCheckPath: /health
+    # Disco persistente pro SQLite (libSQL) dos usuários/papéis. Aponte
+    # TURSO_DATABASE_URL=file:/var/data/ego.db (env no dashboard) pra usá-lo.
+    disk:
+      name: ego-data
+      mountPath: /var/data
+      sizeGB: 1
     envVars:
       # --- Secrets (setar no dashboard, sync:false) ---
       - key: INTERHUMAN_API_KEY   # chave do upstream Interhuman (WS)
