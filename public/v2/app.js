@@ -2,18 +2,18 @@
 // Browser -> ws://.../ws -> (proxy injects key) -> wss://api.interhuman.ai/v1/stream/analyze
 
 const SIGNAL_TYPES = [
-  { key: 'engagement',   label: 'Engagement' },
-  { key: 'interest',     label: 'Interest' },
-  { key: 'agreement',    label: 'Agreement' },
-  { key: 'confidence',   label: 'Confidence' },
-  { key: 'confusion',    label: 'Confusion' },
-  { key: 'hesitation',   label: 'Hesitation' },
-  { key: 'uncertainty',  label: 'Uncertainty' },
-  { key: 'skepticism',   label: 'Skepticism' },
+  { key: 'engagement', label: 'Engagement' },
+  { key: 'interest', label: 'Interest' },
+  { key: 'agreement', label: 'Agreement' },
+  { key: 'confidence', label: 'Confidence' },
+  { key: 'confusion', label: 'Confusion' },
+  { key: 'hesitation', label: 'Hesitation' },
+  { key: 'uncertainty', label: 'Uncertainty' },
+  { key: 'skepticism', label: 'Skepticism' },
   { key: 'disagreement', label: 'Disagreement' },
-  { key: 'frustration',  label: 'Frustration' },
-  { key: 'stress',       label: 'Stress' },
-  { key: 'disengagement',label: 'Disengagement' },
+  { key: 'frustration', label: 'Frustration' },
+  { key: 'stress', label: 'Stress' },
+  { key: 'disengagement', label: 'Disengagement' },
 ];
 
 const DIMS = ['clarity', 'authority', 'energy', 'rapport', 'learning'];
@@ -21,18 +21,45 @@ const DIMS = ['clarity', 'authority', 'energy', 'rapport', 'learning'];
 // ============= Question bank =============
 // Confronto direto — força fala >=10s + reação genuína.
 const QUESTION_BANK = [
-  { id: 'eyes',      text: 'Olhando pra câmera AGORA: você confia 100% nas suas próprias decisões? Justifique sem desviar o olhar.' },
-  { id: 'hide',      text: 'Conte UMA coisa que você esconde dos seus pais ou parceiro(a). Pequena tudo bem, mas tem que ser verdade.' },
-  { id: 'spicy',     text: 'Sua opinião mais POLÊMICA — daquelas que você normalmente cala. Diga sem suavizar.' },
-  { id: 'life',      text: 'Sendo honesto: você está vivendo a vida que VOCÊ QUER, ou a que ESPERAM de você?' },
-  { id: 'fear',      text: 'Em uma frase curta: o que você MAIS teme sobre seu futuro?' },
-  { id: 'lie',       text: 'Qual a maior MENTIRA que você acredita sobre si mesmo? Responda olhando pra câmera.' },
-  { id: 'envy',      text: 'O que você mais INVEJA em alguém próximo de você?' },
-  { id: 'regret',    text: 'Conte uma decisão que você se arrepende dos últimos 5 anos. Não suaviza.' },
-  { id: 'now',       text: 'Em UMA palavra ou frase curta: como você se sente AGORA, de verdade?' },
-  { id: 'control',   text: 'Uma situação dos últimos 12 meses onde você defendeu uma posição que sabia que estava errada.' },
-  { id: 'authentic', text: 'Numa escala de 1 a 10, o quanto você se considera autêntico nas redes sociais? Por quê?' },
-  { id: 'loverespect', text: 'Você prefere ser amado ou respeitado? Diga e justifique sem hesitar.' },
+  {
+    id: 'eyes',
+    text: 'Olhando pra câmera AGORA: você confia 100% nas suas próprias decisões? Justifique sem desviar o olhar.',
+  },
+  {
+    id: 'hide',
+    text: 'Conte UMA coisa que você esconde dos seus pais ou parceiro(a). Pequena tudo bem, mas tem que ser verdade.',
+  },
+  {
+    id: 'spicy',
+    text: 'Sua opinião mais POLÊMICA — daquelas que você normalmente cala. Diga sem suavizar.',
+  },
+  {
+    id: 'life',
+    text: 'Sendo honesto: você está vivendo a vida que VOCÊ QUER, ou a que ESPERAM de você?',
+  },
+  { id: 'fear', text: 'Em uma frase curta: o que você MAIS teme sobre seu futuro?' },
+  {
+    id: 'lie',
+    text: 'Qual a maior MENTIRA que você acredita sobre si mesmo? Responda olhando pra câmera.',
+  },
+  { id: 'envy', text: 'O que você mais INVEJA em alguém próximo de você?' },
+  {
+    id: 'regret',
+    text: 'Conte uma decisão que você se arrepende dos últimos 5 anos. Não suaviza.',
+  },
+  { id: 'now', text: 'Em UMA palavra ou frase curta: como você se sente AGORA, de verdade?' },
+  {
+    id: 'control',
+    text: 'Uma situação dos últimos 12 meses onde você defendeu uma posição que sabia que estava errada.',
+  },
+  {
+    id: 'authentic',
+    text: 'Numa escala de 1 a 10, o quanto você se considera autêntico nas redes sociais? Por quê?',
+  },
+  {
+    id: 'loverespect',
+    text: 'Você prefere ser amado ou respeitado? Diga e justifique sem hesitar.',
+  },
 ];
 
 function pickQuestions(n = 5) {
@@ -47,10 +74,12 @@ function pickQuestions(n = 5) {
 // ============= Session config =============
 const QUESTION_MS = 25000;
 const QUESTIONS_N = 5;
-const FINALIZE_MS = 5000;       // flush window for late signals
+const FINALIZE_MS = 5000; // flush window for late signals
 const AUDIO_SAMPLE_MS = 100;
 // 0-128 — calibrated for speech. Mobile mics tend a bit quieter / mais ruído de fundo.
-const IS_MOBILE = matchMedia('(max-width: 720px)').matches || /android|iphone|ipad|mobile/i.test(navigator.userAgent);
+const IS_MOBILE =
+  matchMedia('(max-width: 720px)').matches ||
+  /android|iphone|ipad|mobile/i.test(navigator.userAgent);
 const AUDIO_RMS_THRESHOLD = IS_MOBILE ? 4.5 : 6;
 
 // ============= State =============
@@ -74,12 +103,12 @@ const state = {
   session: {
     questions: [],
     currentIdx: -1,
-    buckets: [],            // [{ text, signals:[], engagement:[], audio_activity:0, startedMs, endedMs, dominantEng }]
+    buckets: [], // [{ text, signals:[], engagement:[], audio_activity:0, startedMs, endedMs, dominantEng }]
     qTimer: null,
     audioCtx: null,
     analyser: null,
     audioInterval: null,
-    audioSamples: [],       // current question rolling samples (0/1)
+    audioSamples: [], // current question rolling samples (0/1)
     barEls: [],
   },
 };
@@ -208,25 +237,37 @@ function startTimer() {
     sessionTimer.textContent = `${mm}:${ss}`;
   }, 500);
 }
-function stopTimer() { if (timerHandle) clearInterval(timerHandle); timerHandle = null; }
-function elapsedMs() { return state.startedAt ? performance.now() - state.startedAt : 0; }
+function stopTimer() {
+  if (timerHandle) clearInterval(timerHandle);
+  timerHandle = null;
+}
+function elapsedMs() {
+  return state.startedAt ? performance.now() - state.startedAt : 0;
+}
 
 // ============= Start / Stop =============
 startBtn.addEventListener('click', startSession);
 stopBtn.addEventListener('click', stopSession);
 reportCloseBtn.addEventListener('click', () => setPhase('idle'));
-newSessionBtn.addEventListener('click', () => { setPhase('idle'); setTimeout(startSession, 200); });
+newSessionBtn.addEventListener('click', () => {
+  setPhase('idle');
+  setTimeout(startSession, 200);
+});
 
 // ============= Compartilhar perfilamento =============
 const SHARE_URL = 'https://ego.sougni.com';
-const CUBE_SVG = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24.3 34'%3E%3Cpath d='M21.8086 12.7446V16.7974C21.7566 16.739 21.6954 16.6899 21.625 16.65L17.0741 14.0126C16.7956 13.853 16.4498 13.853 16.1713 14.0126L11.6419 16.6346C11.3909 16.7789 11.2379 17.0491 11.2379 17.3377V22.5756C11.2379 22.9041 11.4123 23.2081 11.6969 23.3708L16.1315 25.9375C16.2447 26.002 16.3672 26.045 16.4957 26.0603L13.169 27.9884C12.6885 28.2648 12.0917 28.2648 11.6113 27.9884L3.69394 23.3984C3.25018 23.1436 2.97168 22.6615 2.97168 22.1457V12.7937C2.97168 12.628 3.00534 12.4683 3.06655 12.3179L10.0045 16.1864C10.0351 16.2048 10.0688 16.2109 10.0994 16.2109C10.1698 16.2109 10.2371 16.1741 10.2708 16.1096C10.3259 16.0144 10.2892 15.8916 10.1943 15.8394L3.2716 11.9801C3.36035 11.8727 3.47053 11.7806 3.59601 11.7099L11.6847 7.02474C11.902 6.89886 12.1468 6.83438 12.3917 6.83438C12.6365 6.83438 12.8813 6.89579 13.0986 7.02474L21.2302 11.7345C21.5882 11.9433 21.8117 12.3271 21.8117 12.7416L21.8086 12.7446Z' fill='%231C1B18'/%3E%3Cpath d='M23.3939 9.86779L13.1415 3.92685C12.511 3.56149 11.7367 3.56149 11.1093 3.92685L0.912007 9.83709C0.345828 10.1625 0 10.7643 0 11.4183V23.2111C0 23.9511 0.394795 24.6388 1.03442 25.0072L11.0175 30.7947C11.7031 31.1907 12.5477 31.1907 13.2333 30.7947L23.7764 24.6879C24.0702 24.516 24.2508 24.1997 24.2508 23.8589V11.3569C24.2508 10.7428 23.9233 10.1779 23.3939 9.87087V9.86779ZM22.2034 22.6615C22.2034 23.0023 22.0198 23.3186 21.729 23.4905L13.3649 28.3354C13.065 28.5073 12.7252 28.5963 12.3886 28.5963C12.052 28.5963 11.7122 28.5104 11.4123 28.3354L3.49194 23.7453C2.92577 23.4168 2.57382 22.8089 2.57382 22.1488V12.7968C2.57382 12.2073 2.88904 11.6608 3.39707 11.3691L11.4858 6.68394C12.0428 6.36156 12.7375 6.36156 13.2945 6.68394L21.426 11.3937C21.9065 11.67 22.2034 12.1858 22.2034 12.7416V22.6585V22.6615Z' fill='%231C1B18'/%3E%3C/svg%3E";
+const CUBE_SVG =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24.3 34'%3E%3Cpath d='M21.8086 12.7446V16.7974C21.7566 16.739 21.6954 16.6899 21.625 16.65L17.0741 14.0126C16.7956 13.853 16.4498 13.853 16.1713 14.0126L11.6419 16.6346C11.3909 16.7789 11.2379 17.0491 11.2379 17.3377V22.5756C11.2379 22.9041 11.4123 23.2081 11.6969 23.3708L16.1315 25.9375C16.2447 26.002 16.3672 26.045 16.4957 26.0603L13.169 27.9884C12.6885 28.2648 12.0917 28.2648 11.6113 27.9884L3.69394 23.3984C3.25018 23.1436 2.97168 22.6615 2.97168 22.1457V12.7937C2.97168 12.628 3.00534 12.4683 3.06655 12.3179L10.0045 16.1864C10.0351 16.2048 10.0688 16.2109 10.0994 16.2109C10.1698 16.2109 10.2371 16.1741 10.2708 16.1096C10.3259 16.0144 10.2892 15.8916 10.1943 15.8394L3.2716 11.9801C3.36035 11.8727 3.47053 11.7806 3.59601 11.7099L11.6847 7.02474C11.902 6.89886 12.1468 6.83438 12.3917 6.83438C12.6365 6.83438 12.8813 6.89579 13.0986 7.02474L21.2302 11.7345C21.5882 11.9433 21.8117 12.3271 21.8117 12.7416L21.8086 12.7446Z' fill='%231C1B18'/%3E%3Cpath d='M23.3939 9.86779L13.1415 3.92685C12.511 3.56149 11.7367 3.56149 11.1093 3.92685L0.912007 9.83709C0.345828 10.1625 0 10.7643 0 11.4183V23.2111C0 23.9511 0.394795 24.6388 1.03442 25.0072L11.0175 30.7947C11.7031 31.1907 12.5477 31.1907 13.2333 30.7947L23.7764 24.6879C24.0702 24.516 24.2508 24.1997 24.2508 23.8589V11.3569C24.2508 10.7428 23.9233 10.1779 23.3939 9.87087V9.86779ZM22.2034 22.6615C22.2034 23.0023 22.0198 23.3186 21.729 23.4905L13.3649 28.3354C13.065 28.5073 12.7252 28.5963 12.3886 28.5963C12.052 28.5963 11.7122 28.5104 11.4123 28.3354L3.49194 23.7453C2.92577 23.4168 2.57382 22.8089 2.57382 22.1488V12.7968C2.57382 12.2073 2.88904 11.6608 3.39707 11.3691L11.4858 6.68394C12.0428 6.36156 12.7375 6.36156 13.2945 6.68394L21.426 11.3937C21.9065 11.67 22.2034 12.1858 22.2034 12.7416V22.6585V22.6615Z' fill='%231C1B18'/%3E%3C/svg%3E";
 
 // Extrai o arquétipo (primeiro heading #) do markdown do perfilamento
 function reportArchetype() {
   const md = state.lastReport?.markdown || '';
   const m = md.match(/^#\s+(.+)$/m);
   let t = m ? m[1] : '';
-  t = t.replace(/[#*`_]/g, '').replace(/\s+/g, ' ').trim();
+  t = t
+    .replace(/[#*`_]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
   // remove emoji de cabeçalho inicial tipo 🧠
   t = t.replace(/^[\p{Emoji}‍️\s]+/u, '').trim();
   return t || 'Meu perfilamento';
@@ -246,62 +287,88 @@ function buildShareText() {
   return t;
 }
 
-// Desenha um card de resultado (creme/clay, logo Sougni) e retorna File PNG
+// Desenha um card de resultado (monocromático, logo Sougni) e retorna File PNG
 async function renderShareCard() {
   try {
-    const W = 1080, H = 1350, P = 96;
+    const W = 1080,
+      H = 1350,
+      P = 96;
     const c = document.createElement('canvas');
-    c.width = W; c.height = H;
+    c.width = W;
+    c.height = H;
     const ctx = c.getContext('2d');
     // fundo creme
-    ctx.fillStyle = '#FAF9F6'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, W, H);
     // glow clay no canto
     const g = ctx.createRadialGradient(W - 120, 160, 40, W - 120, 160, 520);
-    g.addColorStop(0, 'rgba(194,107,67,.16)'); g.addColorStop(1, 'rgba(194,107,67,0)');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    g.addColorStop(0, 'rgba(10,10,10,.05)');
+    g.addColorStop(1, 'rgba(10,10,10,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
     // borda interna
-    ctx.strokeStyle = '#ECE8DD'; ctx.lineWidth = 2;
+    ctx.strokeStyle = '#E5E5E5';
+    ctx.lineWidth = 2;
     ctx.strokeRect(40, 40, W - 80, H - 80);
 
-    try { await document.fonts.ready; } catch {}
-    const ui = "'Montserrat', system-ui, sans-serif";
-    const serif = "'Fraunces', Georgia, serif";
+    try {
+      await document.fonts.ready;
+    } catch {}
+    const ui = "'Inter', system-ui, sans-serif";
+    const serif = "'Space Grotesk', Georgia, serif";
 
     const p = state.lastReport?.payload || {};
     const arch = reportArchetype();
     const cqi = p.cqi?.quality_index != null ? Math.round(p.cqi.quality_index) : null;
     const eng = p.engagement_pct?.engaged;
     const sig = p.raw_signal_count;
-    const dur = p.duration_s != null ? `${Math.floor(p.duration_s/60)}m${p.duration_s%60}s` : null;
+    const dur =
+      p.duration_s != null ? `${Math.floor(p.duration_s / 60)}m${p.duration_s % 60}s` : null;
 
     // eyebrow
-    ctx.fillStyle = '#A8542F';
+    ctx.fillStyle = '#737373';
     ctx.font = `600 26px ${ui}`;
     ctx.textBaseline = 'alphabetic';
     ctx.fillText('M E U   P E R F I L A M E N T O', P, 250);
 
     // arquétipo (serif, wrap)
-    ctx.fillStyle = '#1C1B18';
+    ctx.fillStyle = '#0A0A0A';
     let fs = arch.length > 42 ? 64 : 80;
     ctx.font = `600 ${fs}px ${serif}`;
     const maxW = W - P * 2;
     const words = arch.split(' ');
-    let line = '', y = 250 + fs + 30; const lh = fs * 1.12; let lines = 0;
+    let line = '',
+      y = 250 + fs + 30;
+    const lh = fs * 1.12;
+    let lines = 0;
     for (const w of words) {
       const test = line ? line + ' ' + w : w;
       if (ctx.measureText(test).width > maxW && line) {
-        ctx.fillText(line, P, y); y += lh; line = w; lines++;
-        if (lines >= 4) { line = line; break; }
+        ctx.fillText(line, P, y);
+        y += lh;
+        line = w;
+        lines++;
+        if (lines >= 4) {
+          line = line;
+          break;
+        }
       } else line = test;
     }
-    if (line) { ctx.fillText(line, P, y); y += lh; }
+    if (line) {
+      ctx.fillText(line, P, y);
+      y += lh;
+    }
 
     // CQI badge
     y += 28;
     if (cqi != null) {
-      const bw = 300, bh = 104, bx = P, by = y;
-      ctx.fillStyle = '#C26B43';
-      roundRect(ctx, bx, by, bw, bh, 22); ctx.fill();
+      const bw = 300,
+        bh = 104,
+        bx = P,
+        by = y;
+      ctx.fillStyle = '#171717';
+      roundRect(ctx, bx, by, bw, bh, 22);
+      ctx.fill();
       // label "CQI" topo
       ctx.fillStyle = 'rgba(255,255,255,.82)';
       ctx.font = `700 22px ${ui}`;
@@ -324,27 +391,36 @@ async function renderShareCard() {
     if (sig != null) metr.push(`${sig} sinais`);
     if (dur) metr.push(dur);
     if (metr.length) {
-      ctx.fillStyle = '#4A4842';
+      ctx.fillStyle = '#525252';
       ctx.font = `500 30px ${ui}`;
       ctx.fillText(metr.join('   ·   '), P, y + 18);
     }
 
     // rodapé: logo Sougni + wordmark + CTA
     const fy = H - 150;
-    ctx.strokeStyle = '#ECE8DD'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(P, fy - 40); ctx.lineTo(W - P, fy - 40); ctx.stroke();
+    ctx.strokeStyle = '#E5E5E5';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(P, fy - 40);
+    ctx.lineTo(W - P, fy - 40);
+    ctx.stroke();
 
-    ctx.fillStyle = '#1C1B18';
+    ctx.fillStyle = '#0A0A0A';
     ctx.font = `700 40px ${ui}`;
     ctx.fillText('ego signals', P + 70, fy + 14);
     ctx.font = `500 26px ${ui}`;
-    ctx.fillStyle = '#6E6B62';
+    ctx.fillStyle = '#737373';
     ctx.fillText('por Sougni · ego.sougni.com', P + 70, fy + 52);
 
     // logo cubo
     await new Promise((res) => {
       const img = new Image();
-      img.onload = () => { try { ctx.drawImage(img, P, fy - 26, 48, 67); } catch {} res(); };
+      img.onload = () => {
+        try {
+          ctx.drawImage(img, P, fy - 26, 48, 67);
+        } catch {}
+        res();
+      };
       img.onerror = () => res();
       img.src = CUBE_SVG;
     });
@@ -371,28 +447,44 @@ function roundRect(ctx, x, y, w, h, r) {
 async function shareReport() {
   const text = buildShareText();
   const fullText = `${text}\n${SHARE_URL}`;
-  if (shareBtn) { shareBtn.classList.add('loading'); shareBtn.disabled = true; }
+  if (shareBtn) {
+    shareBtn.classList.add('loading');
+    shareBtn.disabled = true;
+  }
   try {
     // 1) Compartilhar IMAGEM (card) — mais moderno, via menu nativo
     let file = null;
-    try { file = await renderShareCard(); } catch {}
+    try {
+      file = await renderShareCard();
+    } catch {}
     if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
       try {
-        await navigator.share({ files: [file], text: fullText, title: 'Meu perfilamento — ego signals' });
+        await navigator.share({
+          files: [file],
+          text: fullText,
+          title: 'Meu perfilamento — ego signals',
+        });
         return;
-      } catch (e) { if (e && e.name === 'AbortError') return; /* fall through */ }
+      } catch (e) {
+        if (e && e.name === 'AbortError') return; /* fall through */
+      }
     }
     // 2) Compartilhar TEXTO + link (menu nativo do sistema)
     if (navigator.share) {
       try {
         await navigator.share({ title: 'Meu perfilamento — ego signals', text, url: SHARE_URL });
         return;
-      } catch (e) { if (e && e.name === 'AbortError') return; /* fall through */ }
+      } catch (e) {
+        if (e && e.name === 'AbortError') return; /* fall through */
+      }
     }
     // 3) Fallback: planilha de redes (sem Web Share API)
     openShareSheet(text, SHARE_URL);
   } finally {
-    if (shareBtn) { shareBtn.classList.remove('loading'); shareBtn.disabled = false; }
+    if (shareBtn) {
+      shareBtn.classList.remove('loading');
+      shareBtn.disabled = false;
+    }
   }
 }
 
@@ -400,7 +492,10 @@ function openShareSheet(text, url) {
   if (!shareSheet) return;
   const enc = encodeURIComponent;
   const full = `${text}\n${url}`;
-  const set = (id, href) => { const el = document.getElementById(id); if (el) el.href = href; };
+  const set = (id, href) => {
+    const el = document.getElementById(id);
+    if (el) el.href = href;
+  };
   set('shWhats', `https://wa.me/?text=${enc(full)}`);
   set('shTg', `https://t.me/share/url?url=${enc(url)}&text=${enc(text)}`);
   set('shX', `https://twitter.com/intent/tweet?text=${enc(text)}&url=${enc(url)}`);
@@ -411,7 +506,11 @@ function openShareSheet(text, url) {
       try {
         await navigator.clipboard.writeText(full);
         const lbl = document.getElementById('shCopyLabel');
-        if (lbl) { const prev = lbl.textContent; lbl.textContent = 'Copiado!'; setTimeout(() => lbl.textContent = prev, 1800); }
+        if (lbl) {
+          const prev = lbl.textContent;
+          lbl.textContent = 'Copiado!';
+          setTimeout(() => (lbl.textContent = prev), 1800);
+        }
       } catch {}
     };
   }
@@ -421,14 +520,31 @@ function openShareSheet(text, url) {
 if (shareBtn) shareBtn.addEventListener('click', shareReport);
 if (shareSheet) {
   const closeBtn = document.getElementById('shareSheetClose');
-  if (closeBtn) closeBtn.addEventListener('click', () => { shareSheet.hidden = true; });
-  shareSheet.addEventListener('click', (e) => { if (e.target === shareSheet) shareSheet.hidden = true; });
-  shareSheet.querySelectorAll('a.share-opt').forEach(a => a.addEventListener('click', () => setTimeout(() => { shareSheet.hidden = true; }, 200)));
+  if (closeBtn)
+    closeBtn.addEventListener('click', () => {
+      shareSheet.hidden = true;
+    });
+  shareSheet.addEventListener('click', (e) => {
+    if (e.target === shareSheet) shareSheet.hidden = true;
+  });
+  shareSheet.querySelectorAll('a.share-opt').forEach((a) =>
+    a.addEventListener('click', () =>
+      setTimeout(() => {
+        shareSheet.hidden = true;
+      }, 200),
+    ),
+  );
 }
 
 // hook de teste — só em localhost (zero impacto em produção)
 if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
-  window.__egoShareTest = { showReport, shareReport, openShareSheet, renderShareCard, buildShareText };
+  window.__egoShareTest = {
+    showReport,
+    shareReport,
+    openShareSheet,
+    renderShareCard,
+    buildShareText,
+  };
 }
 
 async function startSession() {
@@ -440,7 +556,7 @@ async function startSession() {
   try {
     state.mediaStream = await navigator.mediaDevices.getUserMedia({
       video: {
-        facingMode: 'user',   // câmera frontal em mobile
+        facingMode: 'user', // câmera frontal em mobile
         width: { ideal: 640 },
         height: { ideal: 480 },
         frameRate: { ideal: 24 },
@@ -475,7 +591,10 @@ async function startSession() {
   else if (passcode) wsUrl = `${wsBase}?p=${encodeURIComponent(passcode)}`;
   state.ws = new WebSocket(wsUrl);
   state.ws.binaryType = 'arraybuffer';
-  pushRaw('proxy', 'conectando', { wsUrl: wsBase, auth: token ? 'token' : (passcode ? 'passcode' : 'none') });
+  pushRaw('proxy', 'conectando', {
+    wsUrl: wsBase,
+    auth: token ? 'token' : passcode ? 'passcode' : 'none',
+  });
 
   state.ws.onopen = () => {
     connectingText.textContent = 'abrindo upstream interhuman…';
@@ -500,7 +619,10 @@ async function startSession() {
 
 function stopSession() {
   stopBtn.disabled = true;
-  if (state.session.qTimer) { clearTimeout(state.session.qTimer); state.session.qTimer = null; }
+  if (state.session.qTimer) {
+    clearTimeout(state.session.qTimer);
+    state.session.qTimer = null;
+  }
   teardownAudioMonitor();
   if (state.segmentLoopAbort) state.segmentLoopAbort.abort();
   stopAllMedia();
@@ -513,10 +635,12 @@ function stopSession() {
 }
 
 function stopAllMedia() {
-  try { state.mediaRecorder && state.mediaRecorder.state !== 'inactive' && state.mediaRecorder.stop(); } catch {}
+  try {
+    state.mediaRecorder && state.mediaRecorder.state !== 'inactive' && state.mediaRecorder.stop();
+  } catch {}
   state.mediaRecorder = null;
   if (state.mediaStream) {
-    state.mediaStream.getTracks().forEach(t => t.stop());
+    state.mediaStream.getTracks().forEach((t) => t.stop());
     state.mediaStream = null;
   }
   preview.srcObject = null;
@@ -547,23 +671,36 @@ async function runSegmentLoop() {
   state.codec = mimeType;
   codecUsed.textContent = mimeType.replace('video/', '');
 
-  while (!ac.signal.aborted && state.mediaStream && state.ws && state.ws.readyState === WebSocket.OPEN) {
+  while (
+    !ac.signal.aborted &&
+    state.mediaStream &&
+    state.ws &&
+    state.ws.readyState === WebSocket.OPEN
+  ) {
     const stream = state.mediaStream;
     let recorder;
     try {
-      recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 600_000, audioBitsPerSecond: 64_000 });
+      recorder = new MediaRecorder(stream, {
+        mimeType,
+        videoBitsPerSecond: 600_000,
+        audioBitsPerSecond: 64_000,
+      });
     } catch (e) {
       pushRaw('error', 'MediaRecorder', { message: e.message });
       return;
     }
     state.mediaRecorder = recorder;
     const chunks = [];
-    recorder.ondataavailable = (ev) => { if (ev.data && ev.data.size) chunks.push(ev.data); };
-    const stopped = new Promise(res => recorder.onstop = res);
+    recorder.ondataavailable = (ev) => {
+      if (ev.data && ev.data.size) chunks.push(ev.data);
+    };
+    const stopped = new Promise((res) => (recorder.onstop = res));
     recorder.start();
     recDot.hidden = false;
     await sleep(SEG_MS, ac.signal).catch(() => {});
-    try { recorder.state !== 'inactive' && recorder.stop(); } catch {}
+    try {
+      recorder.state !== 'inactive' && recorder.stop();
+    } catch {}
     await stopped;
     if (!chunks.length) continue;
     const blob = new Blob(chunks, { type: mimeType });
@@ -583,7 +720,11 @@ async function runSegmentLoop() {
 function sleep(ms, signal) {
   return new Promise((resolve, reject) => {
     const t = setTimeout(resolve, ms);
-    if (signal) signal.addEventListener('abort', () => { clearTimeout(t); reject(new Error('aborted')); });
+    if (signal)
+      signal.addEventListener('abort', () => {
+        clearTimeout(t);
+        reject(new Error('aborted'));
+      });
   });
 }
 function fmtBytes(n) {
@@ -607,7 +748,7 @@ function setupAudioMonitor() {
       analyser.getByteTimeDomainData(buf);
       let sum = 0;
       for (const v of buf) sum += (v - 128) ** 2;
-      const rms = Math.sqrt(sum / buf.length);   // 0..~128
+      const rms = Math.sqrt(sum / buf.length); // 0..~128
       // record sample for current question
       if (state.session.currentIdx >= 0) {
         state.session.audioSamples.push(rms > AUDIO_RMS_THRESHOLD ? 1 : 0);
@@ -633,7 +774,9 @@ function teardownAudioMonitor() {
   if (state.session.audioInterval) clearInterval(state.session.audioInterval);
   state.session.audioInterval = null;
   if (state.session.audioCtx) {
-    try { state.session.audioCtx.close(); } catch {}
+    try {
+      state.session.audioCtx.close();
+    } catch {}
     state.session.audioCtx = null;
   }
 }
@@ -652,7 +795,7 @@ function beginQuestions() {
   setPhase('questioning');
   setConn('streaming', 'badge-streaming');
   state.session.questions = pickQuestions(QUESTIONS_N);
-  state.session.buckets = state.session.questions.map(q => ({
+  state.session.buckets = state.session.questions.map((q) => ({
     id: q.id,
     text: q.text,
     signals: [],
@@ -685,7 +828,10 @@ function showQuestion(idx) {
   qTime.textContent = `${remaining}s`;
   const tickHandle = setInterval(() => {
     remaining--;
-    if (remaining <= 0) { clearInterval(tickHandle); return; }
+    if (remaining <= 0) {
+      clearInterval(tickHandle);
+      return;
+    }
     qTime.textContent = `${remaining}s`;
   }, 1000);
   // animate progress bar
@@ -719,19 +865,24 @@ function v2Endpoint(name) {
   const cfg = window.IH_CONFIG || {};
   // Em dev (localhost) ignora wsUrl prod — usa same-origin pro backend local.
   const isDevLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-  const base = (cfg.wsUrl && !isDevLocal)
-    ? cfg.wsUrl.replace(/^wss?:\/\//, location.protocol + '//').replace(/\/ws$/, '')
-    : `${location.protocol}//${location.host}`;
+  const base =
+    cfg.wsUrl && !isDevLocal
+      ? cfg.wsUrl.replace(/^wss?:\/\//, location.protocol + '//').replace(/\/ws$/, '')
+      : `${location.protocol}//${location.host}`;
   return `${base}/${name}`;
 }
-function reportEndpoint() { return v2Endpoint('v2/report'); }
+function reportEndpoint() {
+  return v2Endpoint('v2/report');
+}
 
 // Token de sessão (do localStorage ou do config injetado pelo auth gate)
 function authToken() {
   try {
     const a = JSON.parse(localStorage.getItem('ego_auth') || 'null');
     return a?.token || (window.IH_CONFIG || {}).token || '';
-  } catch { return (window.IH_CONFIG || {}).token || ''; }
+  } catch {
+    return (window.IH_CONFIG || {}).token || '';
+  }
 }
 
 function buildReportPayload() {
@@ -750,7 +901,7 @@ function buildReportPayload() {
       audio_activity: Math.round(b.audio_activity * 100) / 100,
       really_answered: b.audio_activity > 0.15 || b.signals.length > 0,
       signals: aggregateSignals(b.signals),
-      engagement_changes: b.engagement.map(e => e.state),
+      engagement_changes: b.engagement.map((e) => e.state),
     })),
     raw_signal_count: state.history.length,
   };
@@ -783,9 +934,9 @@ function engagementBreakdown() {
   }
   if (!totalDur) return { engaged: 0, neutral: 100, disengaged: 0 };
   return {
-    engaged:    Math.round((counts.engaged || 0) / totalDur * 100),
-    neutral:    Math.round((counts.neutral || 0) / totalDur * 100),
-    disengaged: Math.round((counts.disengaged || 0) / totalDur * 100),
+    engaged: Math.round(((counts.engaged || 0) / totalDur) * 100),
+    neutral: Math.round(((counts.neutral || 0) / totalDur) * 100),
+    disengaged: Math.round(((counts.disengaged || 0) / totalDur) * 100),
   };
 }
 
@@ -816,7 +967,9 @@ async function requestReport() {
     if (r.status === 401) {
       // sessão expirada/invalidada → limpa token e volta pro login
       pushRaw('error', 'report.unauthorized', {});
-      try { localStorage.removeItem('ego_auth'); } catch {}
+      try {
+        localStorage.removeItem('ego_auth');
+      } catch {}
       location.replace('../login.html');
       return;
     }
@@ -834,19 +987,26 @@ async function requestReport() {
 function showReport(payload, data) {
   setPhase('reporting');
   state.lastReport = { markdown: data.markdown || '', payload };
-  rCqi.textContent = payload.cqi?.quality_index != null ? Math.round(payload.cqi.quality_index) : '—';
+  rCqi.textContent =
+    payload.cqi?.quality_index != null ? Math.round(payload.cqi.quality_index) : '—';
   rEng.textContent = `${payload.engagement_pct.engaged}%`;
   rSig.textContent = String(payload.raw_signal_count);
   rDur.textContent = `${Math.floor(payload.duration_s / 60)}m ${payload.duration_s % 60}s`;
   reportSubtitle.textContent = `${payload.per_question.length} perguntas confrontadas · fonte: ${data.source || 'claude'}`;
   reportMd.innerHTML = renderMarkdown(data.markdown || '');
-  reportQList.innerHTML = payload.per_question.map(q => {
-    const tags = [];
-    if (q.really_answered) tags.push(`<span class="q-tag spoke">respondeu (${Math.round(q.audio_activity * 100)}% voz)</span>`);
-    else tags.push(`<span class="q-tag silent">silenciou</span>`);
-    if (q.signals.length) tags.push(`<span class="q-tag signal">${q.signals.length} sinais</span>`);
-    return `<li>${escapeHtml(q.question)}<div class="q-tags">${tags.join('')}</div></li>`;
-  }).join('');
+  reportQList.innerHTML = payload.per_question
+    .map((q) => {
+      const tags = [];
+      if (q.really_answered)
+        tags.push(
+          `<span class="q-tag spoke">respondeu (${Math.round(q.audio_activity * 100)}% voz)</span>`,
+        );
+      else tags.push(`<span class="q-tag silent">silenciou</span>`);
+      if (q.signals.length)
+        tags.push(`<span class="q-tag signal">${q.signals.length} sinais</span>`);
+      return `<li>${escapeHtml(q.question)}<div class="q-tags">${tags.join('')}</div></li>`;
+    })
+    .join('');
 }
 
 function fallbackReportMd(p) {
@@ -860,7 +1020,7 @@ function fallbackReportMd(p) {
 O sinal mais recorrente foi **${top}** com ${p.top_signals[0]?.count || 0} ocorrência(s).
 
 ## Resposta por pergunta
-${p.per_question.map(q => `- **${q.idx}.** ${q.really_answered ? '✓ respondeu' : '✗ silenciou'} · sinais: ${q.signals.map(s => s.type).join(', ') || 'nenhum'}`).join('\n')}
+${p.per_question.map((q) => `- **${q.idx}.** ${q.really_answered ? '✓ respondeu' : '✗ silenciou'} · sinais: ${q.signals.map((s) => s.type).join(', ') || 'nenhum'}`).join('\n')}
 
 *(Report gerado por fallback local — sem IA conectada. Configure ANTHROPIC_API_KEY no backend pra report turbinado.)*`;
 }
@@ -877,10 +1037,13 @@ function renderMarkdown(md) {
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .split(/\n{2,}/)
-    .map(block => {
+    .map((block) => {
       if (/^<h\d/.test(block)) return block;
       if (/^\s*-\s/.test(block)) {
-        const items = block.split(/\n/).filter(Boolean).map(l => l.replace(/^\s*-\s+/, '<li>') + '</li>');
+        const items = block
+          .split(/\n/)
+          .filter(Boolean)
+          .map((l) => l.replace(/^\s*-\s+/, '<li>') + '</li>');
         return `<ul>${items.join('')}</ul>`;
       }
       return `<p>${block.replace(/\n/g, '<br/>')}</p>`;
@@ -891,7 +1054,12 @@ function renderMarkdown(md) {
 // ============= Server messages =============
 function handleServerMessage(text) {
   let msg;
-  try { msg = JSON.parse(text); } catch { pushRaw('proxy', 'non-json', { raw: text.slice(0, 200) }); return; }
+  try {
+    msg = JSON.parse(text);
+  } catch {
+    pushRaw('proxy', 'non-json', { raw: text.slice(0, 200) });
+    return;
+  }
   const t = msg.type || 'unknown';
 
   if (t === 'proxy.auth_rejected') {
@@ -924,18 +1092,44 @@ function handleServerMessage(text) {
   }
   if (t === 'session.ready') {
     pushRaw('session', t, msg.data);
-    runSegmentLoop().catch(err => pushRaw('error', 'segmentLoop', { message: err.message }));
+    runSegmentLoop().catch((err) => pushRaw('error', 'segmentLoop', { message: err.message }));
     // start the quiz now
     beginQuestions();
     return;
   }
-  if (t === 'session.updated') { pushRaw('session', t, msg.data); return; }
-  if (t === 'signal.detected') { handleSignalDetected(msg.data); pushRaw('signal', t, msg.data); return; }
-  if (t === 'signal.updated')  { handleSignalUpdated(msg.data);  pushRaw('signal', t, msg.data); return; }
-  if (t === 'signal.ended')    { handleSignalEnded(msg.data);    pushRaw('signal', t, msg.data); return; }
-  if (t === 'engagement.updated')         { handleEngagementUpdated(msg.data);   pushRaw('engagement', t, msg.data); return; }
-  if (t === 'conversation_quality.updated'){ handleQualityUpdated(msg.data);     pushRaw('quality', t, msg.data); return; }
-  if (t === 'error') { pushRaw('error', t, msg.data); return; }
+  if (t === 'session.updated') {
+    pushRaw('session', t, msg.data);
+    return;
+  }
+  if (t === 'signal.detected') {
+    handleSignalDetected(msg.data);
+    pushRaw('signal', t, msg.data);
+    return;
+  }
+  if (t === 'signal.updated') {
+    handleSignalUpdated(msg.data);
+    pushRaw('signal', t, msg.data);
+    return;
+  }
+  if (t === 'signal.ended') {
+    handleSignalEnded(msg.data);
+    pushRaw('signal', t, msg.data);
+    return;
+  }
+  if (t === 'engagement.updated') {
+    handleEngagementUpdated(msg.data);
+    pushRaw('engagement', t, msg.data);
+    return;
+  }
+  if (t === 'conversation_quality.updated') {
+    handleQualityUpdated(msg.data);
+    pushRaw('quality', t, msg.data);
+    return;
+  }
+  if (t === 'error') {
+    pushRaw('error', t, msg.data);
+    return;
+  }
   pushRaw('proxy', t, msg.data || msg);
 }
 
@@ -961,7 +1155,13 @@ function handleSignalDetected(d) {
   state.activeSignals.set(type, { ...d, _detectedAt: Date.now() });
   setChip(type, { probability: d.probability, rationale: d.rationale });
   bucketSignal(d);
-  pushHistory({ type, start: d.start, probability: d.probability, rationale: d.rationale, state: 'detected' });
+  pushHistory({
+    type,
+    start: d.start,
+    probability: d.probability,
+    rationale: d.rationale,
+    state: 'detected',
+  });
 }
 function handleSignalUpdated(d) {
   const type = d.signal_type;
@@ -969,7 +1169,13 @@ function handleSignalUpdated(d) {
   state.activeSignals.set(type, { ...cur, ...d });
   setChip(type, { probability: d.probability, rationale: d.rationale });
   bucketSignal(d);
-  pushHistory({ type, start: d.start, probability: d.probability, rationale: d.rationale, state: 'updated' });
+  pushHistory({
+    type,
+    start: d.start,
+    probability: d.probability,
+    rationale: d.rationale,
+    state: 'updated',
+  });
 }
 function handleSignalEnded(d) {
   state.activeSignals.delete(d.signal_type);
@@ -981,17 +1187,21 @@ function pushHistory(entry) {
   state.history.unshift({ ...entry, _t: Date.now() });
   state.history = state.history.slice(0, 60);
   histCount.textContent = state.history.length;
-  signalHistory.innerHTML = state.history.map(h => {
-    const time = (h.start ?? h.end ?? 0).toFixed(1) + 's';
-    const cls = h.state === 'ended' ? 'ended' : '';
-    const prob = h.probability || '';
-    const rat = h.rationale ? `<span class="t-rat">${escapeHtml(h.rationale)}</span>` : `<span class="t-rat">${h.state}</span>`;
-    return `<li class="${cls}" data-prob="${prob}">
+  signalHistory.innerHTML = state.history
+    .map((h) => {
+      const time = (h.start ?? h.end ?? 0).toFixed(1) + 's';
+      const cls = h.state === 'ended' ? 'ended' : '';
+      const prob = h.probability || '';
+      const rat = h.rationale
+        ? `<span class="t-rat">${escapeHtml(h.rationale)}</span>`
+        : `<span class="t-rat">${h.state}</span>`;
+      return `<li class="${cls}" data-prob="${prob}">
       <span class="t-name">${h.type}</span>
       ${rat}
       <span class="t-time">${time}</span>
     </li>`;
-  }).join('');
+    })
+    .join('');
 }
 
 function handleEngagementUpdated(d) {
@@ -1012,13 +1222,17 @@ function renderEngageTimeline() {
   if (!hist.length) return;
   const now = elapsedMs() / 1000;
   const total = Math.max(now, hist[hist.length - 1].start + 1);
-  engageTimeline.innerHTML = hist.map(seg => {
-    const end = seg.end ?? total;
-    const w = Math.max(0, ((end - seg.start) / total) * 100);
-    return `<div class="engage-seg ${seg.state}" style="width:${w}%"></div>`;
-  }).join('');
+  engageTimeline.innerHTML = hist
+    .map((seg) => {
+      const end = seg.end ?? total;
+      const w = Math.max(0, ((end - seg.start) / total) * 100);
+      return `<div class="engage-seg ${seg.state}" style="width:${w}%"></div>`;
+    })
+    .join('');
 }
-setInterval(() => { if (state.engagement.history.length) renderEngageTimeline(); }, 1000);
+setInterval(() => {
+  if (state.engagement.history.length) renderEngageTimeline();
+}, 1000);
 
 function handleQualityUpdated(d) {
   if (d.overall) {
@@ -1047,29 +1261,44 @@ function handleQualityUpdated(d) {
 }
 function bandFor(q) {
   if (q >= 80) return { label: 'EXCELLENT', color: '#0F766E' };
-  if (q >= 65) return { label: 'GOOD',      color: '#15803D' };
-  if (q >= 50) return { label: 'MODERATE',  color: '#A16207' };
+  if (q >= 65) return { label: 'GOOD', color: '#15803D' };
+  if (q >= 50) return { label: 'MODERATE', color: '#A16207' };
   if (q >= 30) return { label: 'BELOW AVG', color: '#C2410C' };
-  return         { label: 'WEAK',           color: '#B91C1C' };
+  return { label: 'WEAK', color: '#B91C1C' };
 }
 function drawCqiTimeline() {
   const c = cqiTimelineCanvas;
   const dpr = window.devicePixelRatio || 1;
-  const cssW = c.clientWidth, cssH = c.clientHeight;
-  if (c.width !== cssW * dpr) { c.width = cssW * dpr; c.height = cssH * dpr; }
+  const cssW = c.clientWidth,
+    cssH = c.clientHeight;
+  if (c.width !== cssW * dpr) {
+    c.width = cssW * dpr;
+    c.height = cssH * dpr;
+  }
   const ctx = c.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, cssW, cssH);
   const pts = state.cqi.timeline;
   if (!pts.length) return;
   const maxT = pts[pts.length - 1].end || pts[pts.length - 1].start || 1;
-  ctx.strokeStyle = '#E0EBEC'; ctx.lineWidth = 1;
+  ctx.strokeStyle = '#E0EBEC';
+  ctx.lineWidth = 1;
   for (let y of [0.25, 0.5, 0.75]) {
-    ctx.beginPath(); ctx.moveTo(0, cssH * y); ctx.lineTo(cssW, cssH * y); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, cssH * y);
+    ctx.lineTo(cssW, cssH * y);
+    ctx.stroke();
   }
-  const dimColors = { clarity:'#A78BFA', authority:'#0EA5E9', energy:'#F59E0B', rapport:'#14B8A6', learning:'#F97316' };
+  const dimColors = {
+    clarity: '#A78BFA',
+    authority: '#0EA5E9',
+    energy: '#F59E0B',
+    rapport: '#14B8A6',
+    learning: '#F97316',
+  };
   for (const dim of DIMS) {
-    ctx.strokeStyle = dimColors[dim] + 'AA'; ctx.lineWidth = 1.4;
+    ctx.strokeStyle = dimColors[dim] + 'AA';
+    ctx.lineWidth = 1.4;
     ctx.beginPath();
     pts.forEach((p, i) => {
       const x = (p.end / maxT) * cssW;
@@ -1078,7 +1307,8 @@ function drawCqiTimeline() {
     });
     ctx.stroke();
   }
-  ctx.strokeStyle = '#002E46'; ctx.lineWidth = 2.4;
+  ctx.strokeStyle = '#002E46';
+  ctx.lineWidth = 2.4;
   ctx.beginPath();
   pts.forEach((p, i) => {
     const x = (p.end / maxT) * cssW;
@@ -1104,10 +1334,22 @@ function pushRaw(kind, type, data) {
   rawLog.prepend(li);
   while (rawLog.children.length > 300) rawLog.removeChild(rawLog.lastChild);
 }
-function pad(n) { return String(n).padStart(2, '0'); }
-function stringify(d) { if (d == null) return ''; try { return JSON.stringify(d); } catch { return String(d); } }
+function pad(n) {
+  return String(n).padStart(2, '0');
+}
+function stringify(d) {
+  if (d == null) return '';
+  try {
+    return JSON.stringify(d);
+  } catch {
+    return String(d);
+  }
+}
 function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  return String(s).replace(
+    /[&<>"']/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
+  );
 }
 
 // ============= Logged-in user pill =============
