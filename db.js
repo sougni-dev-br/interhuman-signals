@@ -3,9 +3,25 @@
 // em dev cai num arquivo SQLite local (data/ego.db). Mesmo cliente, mesmo código.
 import { createClient } from '@libsql/client';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const url = process.env.TURSO_DATABASE_URL || 'file:./data/ego.db';
 const authToken = process.env.TURSO_AUTH_TOKEN || undefined;
+
+// libSQL NÃO cria o diretório do arquivo — pra URLs file: garantimos que a pasta
+// existe (senão o createClient crasha no import com SQLITE_CANTOPEN(14) no Render,
+// onde o ./data não existe). No-op se for Turso remoto (libsql://) ou dir já existir.
+if (url.startsWith('file:')) {
+  const dir = path.dirname(url.slice('file:'.length));
+  if (dir && dir !== '.') {
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+    } catch {
+      /* se falhar, o createClient abaixo reporta o erro real */
+    }
+  }
+}
 
 export const db = createClient({ url, authToken });
 export const DB_MODE = url.startsWith('file:') ? 'local' : 'turso';
