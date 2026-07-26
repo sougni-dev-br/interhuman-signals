@@ -16,7 +16,7 @@ export default [
 
   // Backend — Node, ES Modules
   {
-    files: ['server.js'],
+    files: ['server.js', 'db.js'],
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: 'module',
