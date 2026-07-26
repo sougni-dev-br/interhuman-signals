@@ -436,8 +436,8 @@
             role: data.role || 'user',
           }),
         );
-        // admin vai pro painel; demais vão pro teste
-        location.replace(data.role === 'admin' ? '/admin.html' : '/v2/');
+        // admin vai pro painel; demais vão pro teste (versao busta cache de HTML)
+        location.replace(data.role === 'admin' ? '/admin.html?v=obs1' : '/v2/?v=obs1');
       }
 
       // A entrada SEMPRE passa por esta tela — nunca pula direto pro /v2/, mesmo
@@ -501,7 +501,7 @@
             'ego_auth',
             JSON.stringify({ token: data.token, email: data.email, exp: data.exp, role: 'guest' }),
           );
-          location.replace('/v2/');
+          location.replace('/v2/?v=obs1');
         } catch (err) {
           showError('Falha na conexão: ' + err.message);
           guestBtn.classList.remove('loading');
