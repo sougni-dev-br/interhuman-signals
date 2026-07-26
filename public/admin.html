@@ -457,7 +457,7 @@
       // ---- Auth / gate ----
       function getAuth() {
         try {
-          return JSON.parse(localStorage.getItem('ego_auth') || 'null');
+          return JSON.parse(sessionStorage.getItem('ego_auth') || 'null');
         } catch {
           return null;
         }
@@ -466,7 +466,7 @@
       const expired = auth && auth.exp && Date.now() / 1000 > auth.exp;
       if (!auth || !auth.token || expired || auth.role !== 'admin') {
         try {
-          localStorage.removeItem('ego_auth');
+          sessionStorage.removeItem('ego_auth');
         } catch {}
         location.replace('login.html');
       }
@@ -487,7 +487,7 @@
       async function api(path, opts = {}) {
         const r = await fetch(apiBase() + path, { ...opts, headers: authHeaders() });
         if (r.status === 401) {
-          localStorage.removeItem('ego_auth');
+          sessionStorage.removeItem('ego_auth');
           location.replace('login.html');
           throw new Error('unauthorized');
         }
@@ -635,7 +635,7 @@
       });
 
       $('logoutBtn').addEventListener('click', () => {
-        localStorage.removeItem('ego_auth');
+        sessionStorage.removeItem('ego_auth');
         location.replace('login.html');
       });
 

@@ -426,17 +426,8 @@
         return `${location.protocol}//${location.host}/auth`;
       }
 
-      function hasValidSession() {
-        try {
-          const a = JSON.parse(localStorage.getItem('ego_auth') || 'null');
-          return !!(a && a.token && (!a.exp || Date.now() / 1000 < a.exp));
-        } catch {
-          return false;
-        }
-      }
-
       function persistAndGo(data) {
-        localStorage.setItem(
+        sessionStorage.setItem(
           'ego_auth',
           JSON.stringify({
             token: data.token,
@@ -449,15 +440,12 @@
         location.replace(data.role === 'admin' ? '/admin.html' : '/v2/');
       }
 
-      // sessão já válida → pula direto
-      if (hasValidSession()) {
-        try {
-          const a = JSON.parse(localStorage.getItem('ego_auth'));
-          location.replace(a.role === 'admin' ? '/admin.html' : '/v2/');
-        } catch {
-          location.replace('/v2/');
-        }
-      }
+      // A entrada SEMPRE passa por esta tela — nunca pula direto pro /v2/, mesmo
+      // com sessão válida. Sessão vive em sessionStorage (some ao fechar o navegador).
+      // Limpa qualquer token antigo em localStorage (modelo migrou pra sessionStorage).
+      try {
+        localStorage.removeItem('ego_auth');
+      } catch {}
 
       form.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -509,7 +497,7 @@
             guestBtn.disabled = false;
             return;
           }
-          localStorage.setItem(
+          sessionStorage.setItem(
             'ego_auth',
             JSON.stringify({ token: data.token, email: data.email, exp: data.exp, role: 'guest' }),
           );

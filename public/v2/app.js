@@ -18,63 +18,10 @@ const SIGNAL_TYPES = [
 
 const DIMS = ['clarity', 'authority', 'energy', 'rapport', 'learning'];
 
-// ============= Question bank =============
-// Confronto direto — força fala >=10s + reação genuína.
-const QUESTION_BANK = [
-  {
-    id: 'eyes',
-    text: 'Olhando pra câmera AGORA: você confia 100% nas suas próprias decisões? Justifique sem desviar o olhar.',
-  },
-  {
-    id: 'hide',
-    text: 'Conte UMA coisa que você esconde dos seus pais ou parceiro(a). Pequena tudo bem, mas tem que ser verdade.',
-  },
-  {
-    id: 'spicy',
-    text: 'Sua opinião mais POLÊMICA — daquelas que você normalmente cala. Diga sem suavizar.',
-  },
-  {
-    id: 'life',
-    text: 'Sendo honesto: você está vivendo a vida que VOCÊ QUER, ou a que ESPERAM de você?',
-  },
-  { id: 'fear', text: 'Em uma frase curta: o que você MAIS teme sobre seu futuro?' },
-  {
-    id: 'lie',
-    text: 'Qual a maior MENTIRA que você acredita sobre si mesmo? Responda olhando pra câmera.',
-  },
-  { id: 'envy', text: 'O que você mais INVEJA em alguém próximo de você?' },
-  {
-    id: 'regret',
-    text: 'Conte uma decisão que você se arrepende dos últimos 5 anos. Não suaviza.',
-  },
-  { id: 'now', text: 'Em UMA palavra ou frase curta: como você se sente AGORA, de verdade?' },
-  {
-    id: 'control',
-    text: 'Uma situação dos últimos 12 meses onde você defendeu uma posição que sabia que estava errada.',
-  },
-  {
-    id: 'authentic',
-    text: 'Numa escala de 1 a 10, o quanto você se considera autêntico nas redes sociais? Por quê?',
-  },
-  {
-    id: 'loverespect',
-    text: 'Você prefere ser amado ou respeitado? Diga e justifique sem hesitar.',
-  },
-];
-
-function pickQuestions(n = 5) {
-  const arr = QUESTION_BANK.slice();
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr.slice(0, n);
-}
-
 // ============= Session config =============
-const QUESTION_MS = 25000;
-const QUESTIONS_N = 5;
-const FINALIZE_MS = 5000; // flush window for late signals
+// Observação passiva: SÓ vídeo + áudio, sem perguntas. A pessoa fala/age
+// naturalmente e a Interhuman AI infere os sinais sociais em tempo real.
+const FINALIZE_MS = 5000; // janela pra sinais atrasados antes de compilar o relatório
 const AUDIO_SAMPLE_MS = 100;
 // 0-128 — calibrated for speech. Mobile mics tend a bit quieter / mais ruído de fundo.
 const IS_MOBILE =
@@ -99,17 +46,12 @@ const state = {
   cqi: { overall: null, timeline: [] },
   logEvents: 0,
 
-  // session quiz state
+  // session (observação passiva — sem perguntas)
   session: {
-    questions: [],
-    currentIdx: -1,
-    buckets: [], // [{ text, signals:[], engagement:[], audio_activity:0, startedMs, endedMs, dominantEng }]
-    qTimer: null,
     audioCtx: null,
     analyser: null,
     audioInterval: null,
-    audioSamples: [], // current question rolling samples (0/1)
-    barEls: [],
+    voiceSamples: [], // 0/1 por amostra ao longo de TODA a sessão (voz detectada?)
   },
 };
 
@@ -118,7 +60,6 @@ const $ = (sel) => document.querySelector(sel);
 const startBtn = $('#startBtn');
 const stopBtn = $('#stopBtn');
 const preview = $('#preview');
-const pipVideo = $('#pipVideo');
 const connBadge = $('#connBadge');
 const sessionTimer = $('#sessionTimer');
 const videoMeta = $('#videoMeta');
@@ -141,15 +82,7 @@ const logCount = $('#logCount');
 
 // overlay elements
 const connectingText = $('#connectingText');
-const qNum = $('#qNum');
-const qTime = $('#qTime');
-const qText = $('#qText');
-const qProgressBar = $('#qProgressBar');
-const micBars = $('#micBars');
-const micLabel = $('#micLabel');
-const miniSignalsEl = $('#miniSignals');
 const reportMd = $('#reportMd');
-const reportQList = $('#reportQList');
 const reportSubtitle = $('#reportSubtitle');
 const rCqi = $('#rCqi');
 const rEng = $('#rEng');
@@ -169,9 +102,7 @@ function setPhase(p) {
 // ============= Chips =============
 function renderChips() {
   signalGrid.innerHTML = '';
-  miniSignalsEl.innerHTML = '';
   for (const sig of SIGNAL_TYPES) {
-    // main grid chip
     const li = document.createElement('div');
     li.className = 'chip';
     li.dataset.sig = sig.key;
@@ -182,23 +113,12 @@ function renderChips() {
       <div class="chip-rationale"></div>
     `;
     signalGrid.appendChild(li);
-
-    // mini chip in overlay
-    const mini = document.createElement('div');
-    mini.className = 'mini-chip';
-    mini.dataset.sig = sig.key;
-    mini.dataset.active = '0';
-    mini.style.setProperty('--chip-color', getComputedStyle(li).getPropertyValue('--chip-color'));
-    mini.style.setProperty('--chip-glow', getComputedStyle(li).getPropertyValue('--chip-glow'));
-    mini.textContent = sig.label.toLowerCase();
-    miniSignalsEl.appendChild(mini);
   }
 }
 renderChips();
 
 function setChip(type, { probability, rationale }) {
   const chip = signalGrid.querySelector(`[data-sig="${type}"]`);
-  const mini = miniSignalsEl.querySelector(`[data-sig="${type}"]`);
   if (chip) {
     chip.dataset.active = '1';
     const probEl = chip.querySelector('.chip-prob');
@@ -206,17 +126,14 @@ function setChip(type, { probability, rationale }) {
     probEl.className = 'chip-prob ' + (probability || '');
     if (rationale) chip.querySelector('.chip-rationale').textContent = rationale;
   }
-  if (mini) mini.dataset.active = '1';
 }
 function clearChip(type) {
   const chip = signalGrid.querySelector(`[data-sig="${type}"]`);
-  const mini = miniSignalsEl.querySelector(`[data-sig="${type}"]`);
   if (chip) {
     chip.dataset.active = '0';
     chip.querySelector('.chip-prob').textContent = '—';
     chip.querySelector('.chip-prob').className = 'chip-prob';
   }
-  if (mini) mini.dataset.active = '0';
 }
 
 // ============= Connection badge =============
@@ -247,7 +164,7 @@ function elapsedMs() {
 
 // ============= Start / Stop =============
 startBtn.addEventListener('click', startSession);
-stopBtn.addEventListener('click', stopSession);
+stopBtn.addEventListener('click', finalizeSession);
 reportCloseBtn.addEventListener('click', () => setPhase('idle'));
 newSessionBtn.addEventListener('click', () => {
   setPhase('idle');
@@ -568,7 +485,6 @@ async function startSession() {
       },
     });
     preview.srcObject = state.mediaStream;
-    pipVideo.srcObject = state.mediaStream;
     const vt = state.mediaStream.getVideoTracks()[0];
     const settings = vt.getSettings();
     videoMeta.textContent = `${settings.width}×${settings.height} @ ${Math.round(settings.frameRate || 0)}fps`;
@@ -617,12 +533,25 @@ async function startSession() {
   startTimer();
 }
 
+// Finaliza a observação: encerra a captura mas MANTÉM os dados acumulados,
+// mostra o loader e dispara o relatório baseado só nos sinais observados.
+function finalizeSession() {
+  if (state.phase !== 'streaming') return;
+  stopBtn.disabled = true;
+  teardownAudioMonitor();
+  if (state.segmentLoopAbort) state.segmentLoopAbort.abort();
+  stopAllMedia();
+  if (state.ws && state.ws.readyState === WebSocket.OPEN) state.ws.close(1000, 'client_finalize');
+  stopTimer();
+  setConn('compilando…', 'badge-idle');
+  recDot.hidden = true;
+  setPhase('finalizing');
+  setTimeout(requestReport, FINALIZE_MS);
+}
+
+// Aborta a sessão sem gerar relatório (cleanup interno / erros / desconexão).
 function stopSession() {
   stopBtn.disabled = true;
-  if (state.session.qTimer) {
-    clearTimeout(state.session.qTimer);
-    state.session.qTimer = null;
-  }
   teardownAudioMonitor();
   if (state.segmentLoopAbort) state.segmentLoopAbort.abort();
   stopAllMedia();
@@ -631,7 +560,7 @@ function stopSession() {
   stopTimer();
   setConn('parado', 'badge-idle');
   recDot.hidden = true;
-  if (state.phase === 'questioning') setPhase('idle');
+  if (state.phase === 'streaming' || state.phase === 'connecting') setPhase('idle');
 }
 
 function stopAllMedia() {
@@ -644,7 +573,6 @@ function stopAllMedia() {
     state.mediaStream = null;
   }
   preview.srcObject = null;
-  pipVideo.srcObject = null;
 }
 
 // ============= Codec probing =============
@@ -734,6 +662,8 @@ function fmtBytes(n) {
 }
 
 // ============= Audio monitor (Web Audio API) =============
+// Mede atividade de voz ao longo de TODA a sessão (0/1 por amostra) — alimenta
+// o voice_activity_pct do relatório. Não desenha nada na tela (sem overlay).
 function setupAudioMonitor() {
   try {
     state.session.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -742,28 +672,13 @@ function setupAudioMonitor() {
     analyser.fftSize = 512;
     src.connect(analyser);
     state.session.analyser = analyser;
-    state.session.barEls = [...micBars.querySelectorAll('i')];
     const buf = new Uint8Array(analyser.fftSize);
     state.session.audioInterval = setInterval(() => {
       analyser.getByteTimeDomainData(buf);
       let sum = 0;
       for (const v of buf) sum += (v - 128) ** 2;
       const rms = Math.sqrt(sum / buf.length); // 0..~128
-      // record sample for current question
-      if (state.session.currentIdx >= 0) {
-        state.session.audioSamples.push(rms > AUDIO_RMS_THRESHOLD ? 1 : 0);
-      }
-      // animate bars
-      const level = Math.min(1, rms / 30);
-      const active = rms > AUDIO_RMS_THRESHOLD;
-      const qMic = document.querySelector('.q-mic');
-      if (qMic) qMic.classList.toggle('active', active);
-      if (micLabel) micLabel.textContent = active ? 'ouvindo…' : 'aguardando voz…';
-      state.session.barEls.forEach((bar, i) => {
-        const phase = (Date.now() / 100 + i) % state.session.barEls.length;
-        const h = 4 + (active ? Math.sin(phase) * 5 + 5 : 0) + level * 8;
-        bar.style.height = `${Math.max(4, h)}px`;
-      });
+      state.session.voiceSamples.push(rms > AUDIO_RMS_THRESHOLD ? 1 : 0);
     }, AUDIO_SAMPLE_MS);
   } catch (e) {
     pushRaw('error', 'audioMonitor', { message: e.message });
@@ -781,83 +696,23 @@ function teardownAudioMonitor() {
   }
 }
 
-function flushAudioToBucket() {
-  const i = state.session.currentIdx;
-  if (i < 0) return;
-  const samples = state.session.audioSamples;
-  const ratio = samples.length ? samples.reduce((a, b) => a + b, 0) / samples.length : 0;
-  state.session.buckets[i].audio_activity = ratio;
-  state.session.audioSamples = [];
+// % do tempo com voz detectada ao longo de toda a sessão (0-1).
+function sessionVoiceActivity() {
+  const s = state.session.voiceSamples;
+  return s.length ? s.reduce((a, b) => a + b, 0) / s.length : 0;
 }
 
-// ============= Question flow =============
-function beginQuestions() {
-  setPhase('questioning');
-  setConn('streaming', 'badge-streaming');
-  state.session.questions = pickQuestions(QUESTIONS_N);
-  state.session.buckets = state.session.questions.map((q) => ({
-    id: q.id,
-    text: q.text,
-    signals: [],
-    engagement: [],
-    cqi_end: null,
-    audio_activity: 0,
-    started_ms: 0,
-    ended_ms: 0,
-  }));
+// ============= Observação passiva (sem perguntas) =============
+// A pessoa aparece na câmera e fala/age naturalmente; os sinais sociais são
+// inferidos em tempo real do vídeo+áudio. O dashboard fica visível ao vivo até
+// a pessoa clicar em "Finalizar", que dispara o relatório só dos sinais.
+function beginObservation() {
+  setPhase('streaming');
+  setConn('lendo em tempo real', 'badge-streaming');
   setupAudioMonitor();
-  // ensure pip video has the stream
-  pipVideo.srcObject = state.mediaStream;
-  showQuestion(0);
-}
-
-function showQuestion(idx) {
-  // close previous bucket
-  if (state.session.currentIdx >= 0 && state.session.currentIdx < state.session.buckets.length) {
-    state.session.buckets[state.session.currentIdx].ended_ms = elapsedMs();
-    flushAudioToBucket();
-  }
-  state.session.currentIdx = idx;
-  const q = state.session.questions[idx];
-  state.session.buckets[idx].started_ms = elapsedMs();
-
-  qNum.textContent = `pergunta ${idx + 1} / ${QUESTIONS_N}`;
-  qText.textContent = q.text;
-  // animate timer text
-  let remaining = QUESTION_MS / 1000;
-  qTime.textContent = `${remaining}s`;
-  const tickHandle = setInterval(() => {
-    remaining--;
-    if (remaining <= 0) {
-      clearInterval(tickHandle);
-      return;
-    }
-    qTime.textContent = `${remaining}s`;
-  }, 1000);
-  // animate progress bar
-  qProgressBar.style.transition = 'none';
-  qProgressBar.style.width = '0%';
-  void qProgressBar.offsetWidth;
-  qProgressBar.style.transition = `width ${QUESTION_MS}ms linear`;
-  qProgressBar.style.width = '100%';
-
-  // schedule next
-  state.session.qTimer = setTimeout(() => {
-    clearInterval(tickHandle);
-    if (idx + 1 < QUESTIONS_N) showQuestion(idx + 1);
-    else endQuestions();
-  }, QUESTION_MS);
-}
-
-function endQuestions() {
-  // close last bucket
-  if (state.session.currentIdx >= 0) {
-    state.session.buckets[state.session.currentIdx].ended_ms = elapsedMs();
-    flushAudioToBucket();
-  }
-  state.session.currentIdx = -1;
-  setPhase('finalizing');
-  setTimeout(requestReport, FINALIZE_MS);
+  startBtn.disabled = true;
+  stopBtn.disabled = false;
+  stopBtn.textContent = 'Finalizar & gerar perfil';
 }
 
 // ============= Backend endpoints (v2 routes) =============
@@ -875,10 +730,10 @@ function reportEndpoint() {
   return v2Endpoint('v2/report');
 }
 
-// Token de sessão (do localStorage ou do config injetado pelo auth gate)
+// Token de sessão (do sessionStorage ou do config injetado pelo auth gate)
 function authToken() {
   try {
-    const a = JSON.parse(localStorage.getItem('ego_auth') || 'null');
+    const a = JSON.parse(sessionStorage.getItem('ego_auth') || 'null');
     return a?.token || (window.IH_CONFIG || {}).token || '';
   } catch {
     return (window.IH_CONFIG || {}).token || '';
@@ -889,22 +744,30 @@ function buildReportPayload() {
   const top = topSignals();
   const eng = engagementBreakdown();
   return {
+    mode: 'observation', // leitura passiva — SEM perguntas
     duration_s: Math.round(elapsedMs() / 1000),
     cqi: state.cqi.overall || null,
     cqi_timeline_points: state.cqi.timeline.length,
     engagement_pct: eng,
+    engagement_segments: state.engagement.history.length,
     top_signals: top,
-    per_question: state.session.buckets.map((b, i) => ({
-      idx: i + 1,
-      question: b.text,
-      duration_s: Math.round((b.ended_ms - b.started_ms) / 1000),
-      audio_activity: Math.round(b.audio_activity * 100) / 100,
-      really_answered: b.audio_activity > 0.15 || b.signals.length > 0,
-      signals: aggregateSignals(b.signals),
-      engagement_changes: b.engagement.map((e) => e.state),
-    })),
+    signal_summary: signalSummary(),
+    voice_activity_pct: Math.round(sessionVoiceActivity() * 100),
     raw_signal_count: state.history.length,
   };
+}
+
+// Consolida o histórico inteiro de sinais da sessão por tipo (count + probabilidades).
+function signalSummary() {
+  const m = new Map();
+  for (const h of state.history) {
+    if (h.state === 'ended') continue;
+    if (!m.has(h.type)) m.set(h.type, { type: h.type, count: 0, probabilities: [] });
+    const e = m.get(h.type);
+    e.count++;
+    if (h.probability) e.probabilities.push(h.probability);
+  }
+  return [...m.values()].sort((a, b) => b.count - a.count);
 }
 
 function topSignals() {
@@ -940,20 +803,9 @@ function engagementBreakdown() {
   };
 }
 
-function aggregateSignals(arr) {
-  const m = new Map();
-  for (const s of arr) {
-    if (!m.has(s.type)) m.set(s.type, { type: s.type, count: 0, probabilities: [] });
-    const e = m.get(s.type);
-    e.count++;
-    if (s.probability) e.probabilities.push(s.probability);
-  }
-  return [...m.values()];
-}
-
 async function requestReport() {
   const payload = buildReportPayload();
-  pushRaw('proxy', 'report.request', { questions: payload.per_question.length });
+  pushRaw('proxy', 'report.request', { signals: payload.raw_signal_count });
   let data;
   try {
     const headers = { 'Content-Type': 'application/json' };
@@ -968,7 +820,7 @@ async function requestReport() {
       // sessão expirada/invalidada → limpa token e volta pro login
       pushRaw('error', 'report.unauthorized', {});
       try {
-        localStorage.removeItem('ego_auth');
+        sessionStorage.removeItem('ego_auth');
       } catch {}
       location.replace('../login.html');
       return;
@@ -992,37 +844,28 @@ function showReport(payload, data) {
   rEng.textContent = `${payload.engagement_pct.engaged}%`;
   rSig.textContent = String(payload.raw_signal_count);
   rDur.textContent = `${Math.floor(payload.duration_s / 60)}m ${payload.duration_s % 60}s`;
-  reportSubtitle.textContent = `${payload.per_question.length} perguntas confrontadas · fonte: ${data.source || 'claude'}`;
+  const voice = payload.voice_activity_pct;
+  reportSubtitle.textContent = `leitura em tempo real · só câmera e microfone${voice != null ? ` · ${voice}% do tempo falando` : ''} · fonte: ${data.source || 'claude'}`;
   reportMd.innerHTML = renderMarkdown(data.markdown || '');
-  reportQList.innerHTML = payload.per_question
-    .map((q) => {
-      const tags = [];
-      if (q.really_answered)
-        tags.push(
-          `<span class="q-tag spoke">respondeu (${Math.round(q.audio_activity * 100)}% voz)</span>`,
-        );
-      else tags.push(`<span class="q-tag silent">silenciou</span>`);
-      if (q.signals.length)
-        tags.push(`<span class="q-tag signal">${q.signals.length} sinais</span>`);
-      return `<li>${escapeHtml(q.question)}<div class="q-tags">${tags.join('')}</div></li>`;
-    })
-    .join('');
 }
 
 function fallbackReportMd(p) {
-  const top = (p.top_signals[0] || {}).type || 'sinal indeterminado';
-  const engPct = p.engagement_pct.engaged;
-  return `# Perfilamento rápido
+  const top = (p.top_signals?.[0] || {}).type || 'sinal indeterminado';
+  const engPct = p.engagement_pct?.engaged ?? 0;
+  const voice = p.voice_activity_pct;
+  const topList = (p.signal_summary || p.top_signals || [])
+    .slice(0, 5)
+    .map((s) => `- **${s.type}** — ${s.count}x`)
+    .join('\n');
+  return `# 🧠 Leitura comportamental
 
-**Score CQI ${p.cqi?.quality_index != null ? Math.round(p.cqi.quality_index) : '—'}/100** · ${engPct}% engajado · ${p.raw_signal_count} sinais ao longo de ${p.duration_s}s.
+**CQI ${p.cqi?.quality_index != null ? Math.round(p.cqi.quality_index) : '—'}/100** · ${engPct}% engajado · ${p.raw_signal_count} sinais${voice != null ? ` · ${voice}% do tempo falando` : ''} ao longo de ${p.duration_s}s.
 
-## O que vimos
-O sinal mais recorrente foi **${top}** com ${p.top_signals[0]?.count || 0} ocorrência(s).
+## O que a câmera captou
+O sinal dominante foi **${top}** (${p.top_signals?.[0]?.count || 0}x). Sinais mais frequentes:
+${topList || '- (nenhum sinal detectado nesta sessão)'}
 
-## Resposta por pergunta
-${p.per_question.map((q) => `- **${q.idx}.** ${q.really_answered ? '✓ respondeu' : '✗ silenciou'} · sinais: ${q.signals.map((s) => s.type).join(', ') || 'nenhum'}`).join('\n')}
-
-*(Report gerado por fallback local — sem IA conectada. Configure ANTHROPIC_API_KEY no backend pra report turbinado.)*`;
+*(Report gerado por fallback local — sem IA conectada. Configure ANTHROPIC_API_KEY no backend pra perfilamento completo.)*`;
 }
 
 // ============= Minimal markdown =============
@@ -1067,7 +910,7 @@ function handleServerMessage(text) {
     setConn(msg.data?.reason || 'auth falhou', 'badge-error');
     // Token inválido/expirado → limpa storage e manda pra login
     if ((msg.data?.reason || '').includes('credentials')) {
-      localStorage.removeItem('ego_auth');
+      sessionStorage.removeItem('ego_auth');
       setTimeout(() => location.replace('login.html'), 1500);
     }
     setPhase('idle');
@@ -1093,8 +936,8 @@ function handleServerMessage(text) {
   if (t === 'session.ready') {
     pushRaw('session', t, msg.data);
     runSegmentLoop().catch((err) => pushRaw('error', 'segmentLoop', { message: err.message }));
-    // start the quiz now
-    beginQuestions();
+    // começa a observação passiva ao vivo (sem perguntas)
+    beginObservation();
     return;
   }
   if (t === 'session.updated') {
@@ -1133,28 +976,11 @@ function handleServerMessage(text) {
   pushRaw('proxy', t, msg.data || msg);
 }
 
-// ============= Signal bucketing helpers =============
-function bucketSignal(data) {
-  const i = state.session.currentIdx;
-  if (i < 0) return;
-  state.session.buckets[i].signals.push({
-    type: data.signal_type,
-    start: data.start,
-    probability: data.probability,
-    rationale: data.rationale,
-  });
-}
-function bucketEngagement(data) {
-  const i = state.session.currentIdx;
-  if (i < 0) return;
-  state.session.buckets[i].engagement.push({ state: data.state, start: data.start });
-}
-
+// ============= Signal handlers =============
 function handleSignalDetected(d) {
   const type = d.signal_type;
   state.activeSignals.set(type, { ...d, _detectedAt: Date.now() });
   setChip(type, { probability: d.probability, rationale: d.rationale });
-  bucketSignal(d);
   pushHistory({
     type,
     start: d.start,
@@ -1168,7 +994,6 @@ function handleSignalUpdated(d) {
   const cur = state.activeSignals.get(type) || {};
   state.activeSignals.set(type, { ...cur, ...d });
   setChip(type, { probability: d.probability, rationale: d.rationale });
-  bucketSignal(d);
   pushHistory({
     type,
     start: d.start,
@@ -1214,7 +1039,6 @@ function handleEngagementUpdated(d) {
   engageBig.className = 'engage-big engage-' + stateName;
   engageBig.querySelector('.engage-label').textContent = stateName;
   engageBig.querySelector('.engage-since').textContent = `desde ${start.toFixed(1)}s`;
-  bucketEngagement(d);
   renderEngageTimeline();
 }
 function renderEngageTimeline() {
@@ -1364,7 +1188,7 @@ function escapeHtml(s) {
   if (isGuest) userPill.classList.add('user-pill-guest');
   userPill.hidden = false;
   logoutBtn.addEventListener('click', () => {
-    localStorage.removeItem('ego_auth');
+    sessionStorage.removeItem('ego_auth');
     location.replace('../login.html');
   });
 })();
@@ -1381,4 +1205,6 @@ function escapeHtml(s) {
 })();
 
 // Initial UI hint
-pushRaw('proxy', 'pronto', { hint: 'v2 · clique em "Iniciar sessão" para iniciar o perfilamento' });
+pushRaw('proxy', 'pronto', {
+  hint: 'v2 · clique em "Iniciar sessão" — leitura só por câmera e microfone, sem perguntas',
+});
