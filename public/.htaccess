@@ -1,0 +1,11 @@
+# ego.sougni.com — sempre revalidar os HTML.
+# Sem isso, o navegador servia login/admin/v2 de cache antigo e, com um token
+# antigo em localStorage, entrava em loop de login (versao velha x nova).
+# Os assets (app.js/styles.css/webp) sao versionados com ?v= e seguem cacheados.
+<IfModule mod_headers.c>
+  <FilesMatch "\.html$">
+    Header set Cache-Control "no-cache, no-store, must-revalidate, max-age=0"
+    Header set Pragma "no-cache"
+    Header set Expires "0"
+  </FilesMatch>
+</IfModule>
