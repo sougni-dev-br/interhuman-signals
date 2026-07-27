@@ -1,32 +1,41 @@
-// Camada de dados — usuários e papéis, persistidos em libSQL/Turso.
-// Em produção usa a URL remota do Turso (TURSO_DATABASE_URL + TURSO_AUTH_TOKEN);
-// em dev cai num arquivo SQLite local (data/ego.db). Mesmo cliente, mesmo código.
-import { createClient } from '@libsql/client';
+// Camada de dados — Postgres (Supabase) via supabase-js com service_role.
+// Migrado de libSQL/Turso p/ Postgres na virada EGO Pulse. O backend usa a
+// service key (bypass de RLS); a autorização é feita no código. RLS fica ligada
+// como 2a camada (Data API pública devolve zero).
+//
+// Auth continua Node-nativo (scrypt + token HMAC no server.js). Papéis:
+// admin | gestor_rh | colaborador | guest.
+import { createClient } from '@supabase/supabase-js';
 import crypto from 'node:crypto';
-import fs from 'node:fs';
-import path from 'node:path';
 
-const url = process.env.TURSO_DATABASE_URL || 'file:./data/ego.db';
-const authToken = process.env.TURSO_AUTH_TOKEN || undefined;
-
-// libSQL NÃO cria o diretório do arquivo — pra URLs file: garantimos que a pasta
-// existe (senão o createClient crasha no import com SQLITE_CANTOPEN(14) no Render,
-// onde o ./data não existe). No-op se for Turso remoto (libsql://) ou dir já existir.
-if (url.startsWith('file:')) {
-  const dir = path.dirname(url.slice('file:'.length));
-  if (dir && dir !== '.') {
-    try {
-      fs.mkdirSync(dir, { recursive: true });
-    } catch {
-      /* se falhar, o createClient abaixo reporta o erro real */
-    }
+// Client criado sob demanda (lazy) via Proxy — assim o env (dotenv) já está
+// carregado quando a 1a query roda, independentemente da ordem de imports do ESM.
+let _client = null;
+function client() {
+  if (_client) return _client;
+  const url = process.env.SUPABASE_URL || '';
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || '';
+  if (!url || !key) {
+    throw new Error('SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY ausentes no ambiente');
   }
+  _client = createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  return _client;
 }
+export const supa = new Proxy(
+  {},
+  {
+    get: (_t, prop) => {
+      const c = client();
+      const v = c[prop];
+      return typeof v === 'function' ? v.bind(c) : v;
+    },
+  },
+);
+export const DB_MODE = 'postgres';
 
-export const db = createClient({ url, authToken });
-export const DB_MODE = url.startsWith('file:') ? 'local' : 'turso';
-
-const ROLES = new Set(['admin', 'user', 'guest']);
+const ROLES = new Set(['admin', 'gestor_rh', 'colaborador', 'guest']);
 export function isValidRole(r) {
   return ROLES.has(r);
 }
@@ -51,112 +60,249 @@ export function verifyPassword(password, stored) {
   }
 }
 
-// ---------- Migração ----------
+// ---------- Organização default ----------
+let _defaultOrgId = null;
+export async function getDefaultOrgId() {
+  if (_defaultOrgId) return _defaultOrgId;
+  const { data, error } = await supa
+    .from('organizations')
+    .select('id')
+    .eq('slug', 'sougni')
+    .maybeSingle();
+  if (error) throw error;
+  _defaultOrgId = data?.id || null;
+  return _defaultOrgId;
+}
+export async function getOrgByComplaintSlug(slug) {
+  const { data, error } = await supa
+    .from('organizations')
+    .select('id, name, min_n')
+    .eq('complaint_slug', String(slug).toLowerCase())
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
+}
+
+// ---------- Migração / connectividade ----------
 export async function initDb() {
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      email TEXT UNIQUE NOT NULL,
-      password_hash TEXT NOT NULL,
-      role TEXT NOT NULL DEFAULT 'user',
-      active INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL,
-      updated_at TEXT
-    )
-  `);
-  await db.execute(`CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)`);
+  // Schema é aplicado via migrations/001_ego_pulse.sql. Aqui só validamos conexão.
+  const { error } = await supa.from('organizations').select('id').limit(1);
+  if (error) throw error;
 }
 
 // ---------- Seed do admin inicial ----------
-// Cria o primeiro admin a partir de ADMIN_EMAIL/ADMIN_PASSWORD se a tabela
-// estiver vazia (resolve o ovo-e-galinha: precisa de admin pra criar usuários).
 export async function seedAdmin() {
   const email = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
   const password = process.env.ADMIN_PASSWORD || '';
   if (!email || !password) return { seeded: false, reason: 'ADMIN_EMAIL/ADMIN_PASSWORD ausentes' };
-  const existing = await db.execute({ sql: 'SELECT id FROM users WHERE email = ?', args: [email] });
-  if (existing.rows.length) return { seeded: false, reason: 'admin já existe' };
+  const existing = await getUserByEmail(email);
+  if (existing) return { seeded: false, reason: 'admin já existe' };
   await createUser({ email, password, role: 'admin' });
   return { seeded: true, email };
 }
 
-// ---------- CRUD ----------
+// ---------- CRUD de usuários ----------
 function rowToUser(r) {
   if (!r) return null;
   return {
     id: Number(r.id),
     email: r.email,
     role: r.role,
-    active: Number(r.active) === 1,
+    department: r.department || null,
+    active: r.active === true || Number(r.active) === 1,
     created_at: r.created_at,
     updated_at: r.updated_at,
   };
 }
 
 export async function getUserByEmail(email) {
-  const r = await db.execute({
-    sql: 'SELECT * FROM users WHERE email = ? LIMIT 1',
-    args: [String(email).trim().toLowerCase()],
-  });
-  return r.rows[0] || null; // inclui password_hash — uso interno no /auth
+  const em = String(email).trim().toLowerCase();
+  const { data, error } = await supa.from('app_users').select('*').eq('email', em).maybeSingle();
+  if (error) throw error;
+  return data || null; // inclui password_hash — uso interno no /auth
 }
 
 export async function listUsers() {
-  const r = await db.execute(
-    'SELECT id, email, role, active, created_at, updated_at FROM users ORDER BY created_at DESC',
-  );
-  return r.rows.map(rowToUser);
+  const { data, error } = await supa
+    .from('app_users')
+    .select('id, email, role, department, active, created_at, updated_at')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data || []).map(rowToUser);
 }
 
 export async function getUserById(id) {
-  const r = await db.execute({
-    sql: 'SELECT id, email, role, active, created_at, updated_at FROM users WHERE id = ?',
-    args: [Number(id)],
-  });
-  return rowToUser(r.rows[0]);
+  const { data, error } = await supa
+    .from('app_users')
+    .select('id, email, role, department, active, created_at, updated_at')
+    .eq('id', Number(id))
+    .maybeSingle();
+  if (error) throw error;
+  return rowToUser(data);
 }
 
-export async function createUser({ email, password, role = 'user' }) {
+export async function createUser({ email, password, role = 'colaborador', department = null }) {
   const em = String(email).trim().toLowerCase();
   if (!em || !password) throw new Error('email e senha obrigatórios');
   if (!isValidRole(role)) throw new Error('papel inválido');
-  const now = new Date().toISOString();
-  await db.execute({
-    sql: 'INSERT INTO users (email, password_hash, role, active, created_at) VALUES (?, ?, ?, 1, ?)',
-    args: [em, hashPassword(password), role, now],
-  });
-  return getUserByEmail(em).then(rowToUser);
+  const org_id = await getDefaultOrgId();
+  const { data, error } = await supa
+    .from('app_users')
+    .insert({ email: em, password_hash: hashPassword(password), role, department, org_id })
+    .select('id, email, role, department, active, created_at, updated_at')
+    .single();
+  if (error) throw error;
+  return rowToUser(data);
 }
 
-export async function updateUser(id, { role, active, password }) {
-  const sets = [];
-  const args = [];
+export async function updateUser(id, { role, active, password, department }) {
+  const patch = {};
   if (role !== undefined) {
     if (!isValidRole(role)) throw new Error('papel inválido');
-    sets.push('role = ?');
-    args.push(role);
+    patch.role = role;
   }
-  if (active !== undefined) {
-    sets.push('active = ?');
-    args.push(active ? 1 : 0);
-  }
-  if (password) {
-    sets.push('password_hash = ?');
-    args.push(hashPassword(password));
-  }
-  if (!sets.length) return getUserById(id);
-  sets.push('updated_at = ?');
-  args.push(new Date().toISOString());
-  args.push(Number(id));
-  await db.execute({ sql: `UPDATE users SET ${sets.join(', ')} WHERE id = ?`, args });
+  if (active !== undefined) patch.active = !!active;
+  if (department !== undefined) patch.department = department;
+  if (password) patch.password_hash = hashPassword(password);
+  if (Object.keys(patch).length === 0) return getUserById(id);
+  patch.updated_at = new Date().toISOString();
+  const { error } = await supa.from('app_users').update(patch).eq('id', Number(id));
+  if (error) throw error;
   return getUserById(id);
 }
 
 export async function deleteUser(id) {
-  await db.execute({ sql: 'DELETE FROM users WHERE id = ?', args: [Number(id)] });
+  const { error } = await supa.from('app_users').delete().eq('id', Number(id));
+  if (error) throw error;
 }
 
 export async function countUsers() {
-  const r = await db.execute('SELECT COUNT(*) AS n FROM users');
-  return Number(r.rows[0].n);
+  const { count, error } = await supa.from('app_users').select('id', { count: 'exact', head: true });
+  if (error) throw error;
+  return Number(count || 0);
+}
+
+// ---------- #1 Sessões + eventos de sinal ----------
+export async function saveSession(sess, events = []) {
+  const org_id = await getDefaultOrgId();
+  const row = { ...sess, org_id };
+  const { data, error } = await supa.from('sessions').insert(row).select('id').single();
+  if (error) throw error;
+  const sessionId = data.id;
+  if (Array.isArray(events) && events.length) {
+    const rows = events.slice(0, 5000).map((e) => ({
+      session_id: sessionId,
+      org_id,
+      ts: e.ts || new Date().toISOString(),
+      kind: String(e.kind || 'event').slice(0, 80),
+      payload: e.payload ?? e,
+    }));
+    const { error: evErr } = await supa.from('session_signal_events').insert(rows);
+    if (evErr) throw evErr;
+  }
+  return sessionId;
+}
+
+export async function getSessionsSince(sinceISO, { userId } = {}) {
+  let q = supa.from('sessions').select('*').gte('started_at', sinceISO).order('started_at', { ascending: true });
+  if (userId) q = q.eq('user_id', Number(userId));
+  const { data, error } = await q;
+  if (error) throw error;
+  return data || [];
+}
+
+// ---------- #2 Relatórios ----------
+export async function saveReport(rep) {
+  const org_id = await getDefaultOrgId();
+  const { data, error } = await supa
+    .from('reports')
+    .insert({ ...rep, org_id })
+    .select('id, kind, created_at')
+    .single();
+  if (error) throw error;
+  return data;
+}
+export async function listReports({ userId, kind, limit = 30 } = {}) {
+  let q = supa.from('reports').select('id, kind, department, markdown, data, source, created_at, period_start, period_end').order('created_at', { ascending: false }).limit(limit);
+  if (userId) q = q.eq('user_id', Number(userId));
+  if (kind) q = q.eq('kind', kind);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data || [];
+}
+export async function lastReportOfKind(userId, kind) {
+  const { data, error } = await supa
+    .from('reports')
+    .select('id, created_at')
+    .eq('user_id', Number(userId))
+    .eq('kind', kind)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
+}
+
+// ---------- #3.2 Denúncias (anônimas) ----------
+export async function createComplaint({ orgId, type, description, extra_info, sentiment_label, sentiment_score, criticality }) {
+  const { data, error } = await supa
+    .from('complaints')
+    .insert({
+      org_id: orgId,
+      type: String(type).slice(0, 80),
+      description,
+      extra_info: extra_info || null,
+      sentiment_label: sentiment_label || null,
+      sentiment_score: sentiment_score ?? null,
+      criticality: criticality || null,
+    })
+    .select('id, created_at')
+    .single();
+  if (error) throw error;
+  return data;
+}
+export async function listComplaints({ orgId, status } = {}) {
+  let q = supa.from('complaints').select('*').order('created_at', { ascending: false });
+  if (orgId) q = q.eq('org_id', orgId);
+  if (status) q = q.eq('status', status);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data || [];
+}
+export async function updateComplaint(id, { status, resolution_notes }) {
+  const patch = {};
+  if (status !== undefined) patch.status = status;
+  if (resolution_notes !== undefined) patch.resolution_notes = resolution_notes;
+  const { data, error } = await supa.from('complaints').update(patch).eq('id', id).select('*').single();
+  if (error) throw error;
+  return data;
+}
+export async function complaintStats(orgId) {
+  const rows = await listComplaints({ orgId });
+  const total = rows.length;
+  const abertas = rows.filter((r) => r.status === 'aberta' || r.status === 'em_analise').length;
+  const resolvidas = rows.filter((r) => r.status === 'resolvida').length;
+  const criticas = rows.filter((r) => r.criticality === 'critica' || r.criticality === 'alta').length;
+  const negativas = rows.filter((r) => r.sentiment_label === 'negativo' || r.sentiment_label === 'critico').length;
+  const scores = rows.map((r) => Number(r.sentiment_score)).filter((n) => !Number.isNaN(n));
+  const sentimento_medio = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : null;
+  return { total, abertas, resolvidas, criticas, negativas, sentimento_medio };
+}
+
+// ---------- #2 Atera runs ----------
+export async function recordAteraRun(run) {
+  const org_id = await getDefaultOrgId();
+  const { data, error } = await supa.from('atera_runs').insert({ ...run, org_id }).select('id').single();
+  if (error) throw error;
+  return data.id;
+}
+
+// ---------- Auditoria ----------
+export async function audit(actor, action, entity, entity_id, meta = null) {
+  try {
+    const org_id = await getDefaultOrgId();
+    await supa.from('audit_log').insert({ org_id, actor, action, entity, entity_id: entity_id != null ? String(entity_id) : null, meta });
+  } catch {
+    /* auditoria é best-effort, nunca derruba a operação */
+  }
 }

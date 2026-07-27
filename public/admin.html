@@ -412,7 +412,8 @@
           <input type="email" id="newEmail" placeholder="e-mail" autocomplete="off" required />
           <input type="password" id="newPass" placeholder="senha (mín. 6)" autocomplete="new-password" required />
           <select id="newRole">
-            <option value="user">user</option>
+            <option value="colaborador">colaborador</option>
+            <option value="gestor_rh">gestor_rh</option>
             <option value="admin">admin</option>
             <option value="guest">guest</option>
           </select>
@@ -518,7 +519,7 @@
           return '—';
         }
       }
-      let ROLES = ['admin', 'user', 'guest'];
+      let ROLES = ['admin', 'gestor_rh', 'colaborador', 'guest'];
 
       function roleSelect(u) {
         const opts = ROLES.map(

@@ -436,8 +436,14 @@
             role: data.role || 'user',
           }),
         );
-        // admin vai pro painel; demais vão pro teste (versao busta cache de HTML)
-        location.replace(data.role === 'admin' ? '/admin.html?v=pw1' : '/v2/?v=obs1');
+        // admin → painel de usuários; gestor_rh → painel EGO Pulse; demais → leitura v2
+        location.replace(
+          data.role === 'admin'
+            ? '/admin.html?v=pw1'
+            : data.role === 'gestor_rh'
+              ? '/pulse/?v=rh1'
+              : '/v2/?v=obs1',
+        );
       }
 
       // A entrada SEMPRE passa por esta tela — nunca pula direto pro /v2/, mesmo

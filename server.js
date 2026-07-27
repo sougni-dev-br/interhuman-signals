@@ -29,6 +29,7 @@ import {
   getUserById,
   VALID_ROLES,
 } from './db.js';
+import { mountPulse, persistSessionAndReport } from './pulse.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -317,13 +318,15 @@ function requireAdmin(req, res, next) {
 const adminUserSchema = z.object({
   email: z.string().email().max(200),
   password: z.string().min(6).max(200),
-  role: z.enum(['admin', 'user', 'guest']).default('user'),
+  role: z.enum(['admin', 'gestor_rh', 'colaborador', 'guest']).default('colaborador'),
+  department: z.string().max(120).optional(),
 });
 const adminPatchSchema = z
   .object({
-    role: z.enum(['admin', 'user', 'guest']).optional(),
+    role: z.enum(['admin', 'gestor_rh', 'colaborador', 'guest']).optional(),
     active: z.boolean().optional(),
     password: z.string().min(6).max(200).optional(),
+    department: z.string().max(120).optional(),
   })
   .refine((o) => Object.keys(o).length > 0, { message: 'nada para atualizar' });
 
@@ -383,7 +386,7 @@ app.patch('/admin/users/:id', requireAdmin, async (req, res) => {
     // trava de segurança: não permitir remover o próprio status de admin/desativar-se
     if (
       target.email === req.user.email &&
-      (parsed.data.role === 'user' || parsed.data.active === false)
+      ((parsed.data.role && parsed.data.role !== 'admin') || parsed.data.active === false)
     ) {
       return res.status(400).json({ error: 'você não pode rebaixar/desativar a própria conta' });
     }
@@ -584,6 +587,12 @@ app.post('/v2/report', reportLimiter, requireToken, async (req, res) => {
       latency_ms: Date.now() - t0,
       source: body.source,
     });
+    // EGO Pulse #1 + relatório diário: persiste sessão + perfilamento (best-effort, não bloqueia)
+    if (body.markdown) {
+      persistSessionAndReport(req.user, payload, body).catch((e) =>
+        logEvent('pulse.persist.error', { message: e.message }),
+      );
+    }
     return res.json(body);
   };
 
@@ -933,13 +942,26 @@ async function bootstrapDb() {
   }
 }
 
+// ============= EGO Pulse (NR-1): persistência, relatório horário + Atera, denúncia anônima =============
+mountPulse(app, {
+  requireToken,
+  corsAllowOrigin,
+  checkOrigin,
+  clientIp,
+  logEvent,
+  reportLimiter,
+  anthropic,
+  claudeCreate,
+  ANTHROPIC_MODEL,
+});
+
 bootstrapDb().finally(() => {
   server.listen(PORT, () => {
     console.log(`\n  Interhuman Signals proxy + report + auth rodando em :${PORT}`);
     console.log(`  Upstream: ${UPSTREAM_URL}`);
     console.log(`  Chave Interhuman: ${API_KEY.slice(0, 12)}...${API_KEY.slice(-4)}`);
     console.log(
-      `  Banco (usuários/papéis): ${DB_MODE === 'turso' ? 'Turso remoto' : 'SQLite local (dev)'}`,
+      `  Banco (EGO Pulse): Postgres/Supabase (${DB_MODE})`,
     );
     console.log(`  Passcode WS: ${PASSCODE ? 'EXIGIDO' : 'desligado'}`);
     console.log(

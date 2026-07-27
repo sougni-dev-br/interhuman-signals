@@ -754,7 +754,22 @@ function buildReportPayload() {
     signal_summary: signalSummary(),
     voice_activity_pct: Math.round(sessionVoiceActivity() * 100),
     raw_signal_count: state.history.length,
+    raw_events: buildRawEvents(), // EGO Pulse #1 — série granular p/ o servidor persistir
   };
+}
+
+// Empacota a série temporal granular da sessão (sinais + CQI + engagement),
+// limitada, p/ o backend gravar em session_signal_events ("todos os dados").
+function buildRawEvents() {
+  const ev = [];
+  try {
+    for (const h of state.history.slice(-600)) ev.push({ kind: 'signal', payload: h });
+    for (const c of state.cqi.timeline.slice(-200)) ev.push({ kind: 'conversation_quality', payload: c });
+    for (const e of state.engagement.history.slice(-200)) ev.push({ kind: 'engagement', payload: e });
+  } catch {
+    /* série granular é best-effort — o agregado da sessão já vai no payload */
+  }
+  return ev.slice(0, 1000);
 }
 
 // Consolida o histórico inteiro de sinais da sessão por tipo (count + probabilidades).
@@ -1208,3 +1223,98 @@ function escapeHtml(s) {
 pushRaw('proxy', 'pronto', {
   hint: 'v2 · clique em "Iniciar sessão" — leitura só por câmera e microfone, sem perguntas',
 });
+
+// ============= Canal de denúncia ANÔNIMO (EGO Pulse #3.2) =============
+// Botão flutuante + modal. POST /pulse/denuncia SEM Authorization → 100% anônimo
+// (o backend não registra identidade nem IP). Vai para os gestores de RH.
+(function mountDenuncia() {
+  const TYPES = [
+    'Assédio moral (psicológico)',
+    'Assédio sexual',
+    'Assédio religioso',
+    'Injúria racial',
+    'Bullying',
+    'Outros',
+  ];
+  const btn = document.createElement('button');
+  btn.id = 'denunciaBtn';
+  btn.type = 'button';
+  btn.textContent = '🕊️ Denúncia anônima';
+  btn.style.cssText =
+    'position:fixed;right:16px;bottom:16px;z-index:60;background:#0A0A0A;color:#fff;border:0;border-radius:999px;padding:12px 18px;font:600 13px Inter,system-ui,sans-serif;cursor:pointer;box-shadow:0 6px 24px rgba(0,0,0,.25)';
+  document.body.appendChild(btn);
+
+  const ov = document.createElement('div');
+  ov.id = 'denunciaOverlay';
+  ov.style.cssText =
+    'position:fixed;inset:0;z-index:70;background:rgba(10,10,10,.55);display:none;align-items:center;justify-content:center;padding:16px';
+  ov.innerHTML =
+    '<div style="background:#fff;max-width:520px;width:100%;border-radius:16px;padding:24px;font-family:Inter,system-ui,sans-serif;max-height:90vh;overflow:auto">' +
+    '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">' +
+    '<h2 style="margin:0;font:600 20px \'Space Grotesk\',Inter,sans-serif;color:#0A0A0A">Canal de denúncia</h2>' +
+    '<button id="denClose" style="background:none;border:0;font-size:22px;cursor:pointer;color:#666;line-height:1">×</button></div>' +
+    '<p style="margin:8px 0 16px;font-size:13px;color:#525252;line-height:1.5"><strong>100% anônimo.</strong> Não registramos seu nome, e-mail nem IP — nada aqui liga a denúncia a você. Vai direto para os gestores de RH.</p>' +
+    '<label style="display:block;font-size:12px;font-weight:600;color:#0A0A0A;margin-bottom:4px">Tipo</label>' +
+    '<select id="denTipo" style="width:100%;padding:10px;border:1px solid #E5E5E5;border-radius:8px;margin-bottom:14px;font-size:14px">' +
+    TYPES.map((t) => '<option>' + t + '</option>').join('') +
+    '</select>' +
+    '<label style="display:block;font-size:12px;font-weight:600;color:#0A0A0A;margin-bottom:4px">O que aconteceu? <span style="color:#C0392B">*</span></label>' +
+    '<textarea id="denDesc" rows="5" placeholder="Descreva o ocorrido com o máximo de detalhes possível." style="width:100%;padding:10px;border:1px solid #E5E5E5;border-radius:8px;margin-bottom:14px;font-size:14px;resize:vertical;font-family:inherit"></textarea>' +
+    '<label style="display:block;font-size:12px;font-weight:600;color:#0A0A0A;margin-bottom:4px">Informações adicionais (opcional)</label>' +
+    '<textarea id="denExtra" rows="3" placeholder="Datas, locais, se há testemunhas, etc." style="width:100%;padding:10px;border:1px solid #E5E5E5;border-radius:8px;margin-bottom:16px;font-size:14px;resize:vertical;font-family:inherit"></textarea>' +
+    '<button id="denSend" style="width:100%;background:#0A0A0A;color:#fff;border:0;border-radius:999px;padding:13px;font:600 14px Inter;cursor:pointer">Enviar denúncia anônima</button>' +
+    '<div id="denMsg" style="margin-top:12px;font-size:13px;text-align:center"></div></div>';
+  document.body.appendChild(ov);
+
+  const q = (s) => ov.querySelector(s);
+  const close = () => {
+    ov.style.display = 'none';
+    q('#denMsg').textContent = '';
+  };
+  btn.onclick = () => {
+    ov.style.display = 'flex';
+  };
+  q('#denClose').onclick = close;
+  ov.onclick = (e) => {
+    if (e.target === ov) close();
+  };
+
+  q('#denSend').onclick = async () => {
+    const desc = q('#denDesc').value.trim();
+    const msg = q('#denMsg');
+    if (desc.length < 5) {
+      msg.style.color = '#C0392B';
+      msg.textContent = 'Descreva o ocorrido (mín. 5 caracteres).';
+      return;
+    }
+    q('#denSend').disabled = true;
+    msg.style.color = '#525252';
+    msg.textContent = 'Enviando com segurança…';
+    try {
+      const r = await fetch(v2Endpoint('pulse/denuncia'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }, // SEM Authorization — anônimo
+        body: JSON.stringify({
+          type: q('#denTipo').value,
+          description: desc,
+          extra_info: q('#denExtra').value.trim() || undefined,
+        }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d.ok) {
+        msg.style.color = '#1E7F4F';
+        q('#denDesc').value = '';
+        q('#denExtra').value = '';
+        msg.innerHTML = 'Denúncia registrada anonimamente.<br>Protocolo: <strong>' + (d.protocolo || '—') + '</strong>';
+      } else {
+        msg.style.color = '#C0392B';
+        msg.textContent = d.error || 'Não foi possível enviar. Tente novamente.';
+      }
+    } catch {
+      msg.style.color = '#C0392B';
+      msg.textContent = 'Falha de conexão. Tente novamente.';
+    } finally {
+      q('#denSend').disabled = false;
+    }
+  };
+})();

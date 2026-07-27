@@ -1,0 +1,1083 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>EGO Pulse · Riscos Psicossociais — NR-1</title>
+<meta name="description" content="EGO Pulse — painel de gestão de riscos psicossociais (NR-1) com radar de clima agregado. Sinais que orientam o encaminhamento ao RH." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+/* ============ Sougni brand tokens (Brand Guidelines) — light mode ============
+   Marca: toxic lime #171717 · deep green #0A0A0A · black · white · rampa de cinzas
+   Tipografia primária: Space Grotesk. Tom: claro, preciso, discreto, sofisticado.
+   ---------------------------------------------------------------------------- */
+:root{
+  /* superfícies claras — monocromático (OpenAI/Anthropic), alinhado ao ego signals */
+  --bg:#FFFFFF; --bg-2:#FAFAFA; --card:#FFFFFF;
+  /* texto — rampa de cinzas neutra */
+  --ink:#0A0A0A; --ink-2:#525252; --ink-3:#A3A3A3;
+  --line:#E5E5E5; --line-2:#D4D4D4;
+  /* acento monocromático (near-black). --lime/--clay viram tons de preto:
+     onde eram FUNDO com texto escuro, o texto passa a branco (ver .on-accent). */
+  --lime:#171717; --lime-2:#000000;
+  --clay:#171717;      /* fundo escuro com texto branco */
+  --clay-2:#0A0A0A;    /* acento forte, títulos */
+  --clay-soft:#F5F5F5; /* tinta neutra — fundos de badge/ícone */
+  --shadow-sm:0 1px 2px rgba(10,10,10,.04), 0 2px 8px rgba(10,10,10,.05);
+  --shadow-md:0 10px 34px rgba(10,10,10,.06), 0 4px 12px rgba(10,10,10,.05);
+  --shadow-lg:0 28px 70px rgba(10,10,10,.10), 0 12px 24px rgba(10,10,10,.06);
+  /* paleta semântica das ZONAS de risco — mantida (leitura de risco precisa de cor) */
+  --z-otima:#067647; --z-segura:#4EA46E; --z-moderada:#B08900; --z-atencao:#B54708; --z-alto:#B42318;
+  --z-otima-s:#E4F3EC; --z-segura-s:#EAF4ED; --z-moderada-s:#FAF2D9; --z-atencao-s:#FAEDE0; --z-alto-s:#F8E7E4;
+  --sans:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --serif:"Space Grotesk",system-ui,sans-serif;
+  --maxw:1180px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--ink); font-family:var(--sans);
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  line-height:1.5; font-size:15px;
+}
+::selection{background:#171717; color:#fff}
+a{color:inherit}
+h1,h2,h3,h4{margin:0; letter-spacing:-.02em; font-family:var(--serif)}
+.eyebrow{font-size:12px; letter-spacing:.16em; text-transform:uppercase; color:var(--ink-3); font-weight:600}
+.serif{font-family:var(--serif)}
+.mono{font-variant-numeric:tabular-nums; font-feature-settings:"tnum"}
+
+/* ============ Topbar ============ */
+.topbar{
+  position:sticky; top:0; z-index:40;
+  background:rgba(250,249,246,.82); backdrop-filter:saturate(1.4) blur(14px);
+  border-bottom:1px solid var(--line);
+}
+.topbar-in{max-width:var(--maxw); margin:0 auto; padding:14px 24px; display:flex; align-items:center; gap:18px}
+.brand{display:flex; align-items:center; gap:11px; text-decoration:none}
+.brand .mark{width:38px; height:38px; border-radius:10px; background:var(--clay-2);
+  display:grid; place-items:center; color:var(--lime); box-shadow:0 1px 2px rgba(10,10,10,.12)}
+.brand .name{font-weight:700; letter-spacing:-.01em; font-size:17px; line-height:1}
+.brand .sub{font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--ink-3); margin-top:3px}
+.top-nav{margin-left:auto; display:flex; align-items:center; gap:4px}
+.top-nav a,.top-nav button{
+  font:inherit; font-size:13.5px; font-weight:600; color:var(--ink-2); background:none; border:0; cursor:pointer;
+  padding:8px 13px; border-radius:9px; display:flex; align-items:center; gap:7px; text-decoration:none;
+}
+.top-nav a:hover,.top-nav button:hover{background:var(--bg-2); color:var(--ink)}
+.top-nav .pill{background:var(--clay-soft); color:var(--clay-2)}
+.chip{display:inline-flex; align-items:center; gap:6px; font-size:11.5px; font-weight:600; padding:5px 10px; border-radius:999px; border:1px solid var(--line-2)}
+.chip .dot{width:7px;height:7px;border-radius:50%}
+
+/* ============ Layout ============ */
+.shell{max-width:var(--maxw); margin:0 auto; padding:34px 24px 80px}
+.section{margin-top:40px}
+.section-head{display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-bottom:16px; flex-wrap:wrap}
+.section-head h2{font-size:22px; font-weight:700}
+.section-head p{margin:4px 0 0; color:var(--ink-3); font-size:13.5px; max-width:60ch}
+.card{background:var(--card); border:1px solid var(--line); border-radius:18px; box-shadow:var(--shadow-sm)}
+.card.pad{padding:22px}
+.grid{display:grid; gap:18px}
+
+/* ============ Hero ============ */
+.hero{display:grid; grid-template-columns:1.15fr .85fr; gap:22px; align-items:stretch}
+.hero-copy{padding:30px 30px 26px}
+.hero h1{font-size:40px; line-height:1.08; font-weight:700; letter-spacing:-.035em; margin-top:14px}
+.hero h1 .hl{position:relative; display:inline-block; padding:0 .16em; background:var(--lime); border-radius:3px; color:#fff}
+.hero .lede{margin:16px 0 0; color:var(--ink-2); font-size:15.5px; max-width:46ch}
+.hero .lede strong{color:var(--ink)}
+.hero-cta{margin-top:22px; display:flex; gap:12px; flex-wrap:wrap; align-items:center}
+.btn{font:inherit; font-weight:600; letter-spacing:-.005em; font-size:14px; cursor:pointer;
+  border:0; border-radius:10px; padding:13px 20px; display:inline-flex; align-items:center; gap:9px; text-decoration:none}
+.btn.primary{background:var(--clay-2); color:#fff; box-shadow:0 1px 2px rgba(10,10,10,.10)}
+.btn.primary:hover{background:#0A0A0A; transform:translateY(-1px)}
+.btn.lime{background:var(--lime); color:#fff; box-shadow:0 1px 2px rgba(10,10,10,.08)}
+.btn.lime:hover{background:var(--lime-2); transform:translateY(-1px)}
+.btn.ghost{background:var(--card); color:var(--ink); border:1px solid var(--line-2); box-shadow:var(--shadow-sm)}
+.btn.ghost:hover{background:var(--bg-2)}
+.btn{transition:transform .15s ease, filter .15s ease, background .15s ease}
+.reassure{display:flex; align-items:center; gap:8px; color:var(--ink-3); font-size:12.5px; margin-top:14px}
+
+/* IHO gauge card */
+.iho{position:relative; padding:24px; display:flex; flex-direction:column}
+.iho .lbl{display:flex; align-items:center; justify-content:space-between}
+.gauge-wrap{position:relative; margin:6px auto 0; width:260px}
+.gauge-num{position:absolute; left:0; right:0; top:52px; text-align:center}
+.gauge-num .v{font-size:52px; font-weight:700; line-height:1; letter-spacing:-.03em}
+.gauge-num .z{font-size:11.5px; font-weight:600; letter-spacing:.1em; text-transform:uppercase; margin-top:6px}
+.iho-foot{display:flex; gap:10px; margin-top:auto; padding-top:16px; border-top:1px solid var(--line)}
+.iho-foot .m{flex:1}
+.iho-foot .m .n{font-size:19px; font-weight:700}
+.iho-foot .m .t{font-size:11px; color:var(--ink-3); text-transform:uppercase; letter-spacing:.08em; margin-top:2px}
+.trend-up{color:var(--z-segura)} .trend-down{color:var(--z-alto)}
+
+/* KPI strip */
+.kpis{display:grid; grid-template-columns:repeat(5,1fr); gap:14px; margin-top:20px}
+.kpi{background:var(--card); border:1px solid var(--line); border-radius:16px; padding:16px 16px 14px; box-shadow:var(--shadow-sm); position:relative; overflow:hidden}
+.kpi .k-top{display:flex; align-items:center; justify-content:space-between; color:var(--ink-3)}
+.kpi .k-top .t{font-size:11.5px; text-transform:uppercase; letter-spacing:.09em; font-weight:600}
+.kpi .k-v{font-size:28px; font-weight:700; margin-top:8px; letter-spacing:-.02em}
+.kpi .k-s{font-size:12px; color:var(--ink-3); margin-top:2px}
+.kpi .spark{position:absolute; right:0; bottom:0; left:0; height:34px; opacity:.85}
+
+/* consent ribbon */
+.ribbon{margin-top:22px; background:linear-gradient(90deg,var(--clay-soft),#fff 70%); border:1px solid var(--line-2);
+  border-radius:16px; padding:14px 18px; display:flex; align-items:center; gap:14px; flex-wrap:wrap}
+.ribbon .ic{width:34px;height:34px;border-radius:10px;background:#fff;border:1px solid var(--line-2);display:grid;place-items:center;color:var(--clay-2)}
+.ribbon .txt{flex:1; min-width:240px; font-size:13px; color:var(--ink-2)}
+.ribbon .txt b{color:var(--ink)}
+.ribbon a{color:var(--clay-2); font-weight:700; text-decoration:none; white-space:nowrap}
+
+/* ============ Tabs ============ */
+.tabs{display:flex; gap:4px; margin-top:8px; padding:5px; background:var(--bg-2); border:1px solid var(--line); border-radius:14px; overflow-x:auto}
+.tab{font:inherit; font-size:13.5px; font-weight:600; color:var(--ink-2); background:none; border:0; cursor:pointer;
+  padding:9px 15px; border-radius:10px; white-space:nowrap; display:flex; align-items:center; gap:7px}
+.tab[aria-selected="true"]{background:var(--card); color:var(--ink); box-shadow:var(--shadow-sm)}
+.tab .lock{font-size:11px; color:var(--ink-3)}
+.panel{display:none; margin-top:22px}
+.panel.active{display:block; animation:fade .35s ease}
+@keyframes fade{from{opacity:0; transform:translateY(6px)} to{opacity:1; transform:none}}
+
+/* ============ Climate heatmap ============ */
+.heat{width:100%; border-collapse:separate; border-spacing:4px}
+.heat th{font-size:11px; color:var(--ink-3); font-weight:600; text-align:center; padding-bottom:4px}
+.heat td.lbl{font-size:12.5px; font-weight:600; color:var(--ink-2); text-align:right; padding-right:8px; white-space:nowrap; width:130px}
+.heat .cell{height:30px; border-radius:7px; cursor:default; position:relative}
+.heat .cell:hover{outline:2px solid var(--ink); outline-offset:1px}
+.legend{display:flex; gap:14px; flex-wrap:wrap; margin-top:14px; font-size:12px; color:var(--ink-2)}
+.legend .li{display:flex; align-items:center; gap:6px}
+.legend .sw{width:13px;height:13px;border-radius:4px}
+
+/* alerts feed */
+.alerts{display:grid; gap:12px}
+.alert-c{display:grid; grid-template-columns:auto 1fr auto; gap:14px; align-items:center; padding:15px 16px; border:1px solid var(--line); border-radius:14px; background:var(--card); box-shadow:var(--shadow-sm)}
+.alert-c .sev{width:46px;height:46px;border-radius:12px;display:grid;place-items:center;font-weight:700;font-size:11px; text-align:center; line-height:1.05; letter-spacing:.04em}
+.alert-c .body .h{font-weight:700; font-size:14.5px}
+.alert-c .body .d{font-size:13px; color:var(--ink-2); margin-top:2px}
+.alert-c .body .tag{display:inline-flex; align-items:center; gap:5px; font-size:11px; color:var(--ink-3); margin-top:7px; border:1px dashed var(--line-2); padding:3px 8px; border-radius:999px}
+.alert-c .go{font-size:12px; font-weight:700; color:var(--clay-2); text-transform:uppercase; letter-spacing:.05em; white-space:nowrap; cursor:pointer}
+
+/* two-col */
+.two{display:grid; grid-template-columns:1fr 1fr; gap:18px}
+.three{display:grid; grid-template-columns:repeat(3,1fr); gap:16px}
+
+/* instrument cards */
+.inst{padding:18px; border:1px solid var(--line); border-radius:16px; background:var(--card); box-shadow:var(--shadow-sm)}
+.inst .tag{font-size:11px; font-weight:700; color:var(--clay-2); text-transform:uppercase; letter-spacing:.08em}
+.inst h4{font-size:15.5px; margin-top:8px}
+.inst p{font-size:12.5px; color:var(--ink-3); margin:6px 0 0}
+.inst .meta{display:flex; gap:8px; margin-top:12px; font-size:11.5px; color:var(--ink-2)}
+.inst .meta span{background:var(--bg-2); padding:3px 9px; border-radius:999px}
+
+/* camera demo */
+.cam-stage{position:relative; border-radius:16px; overflow:hidden; background:#111; aspect-ratio:16/10; display:grid; place-items:center; border:1px solid var(--line-2)}
+.cam-stage video{width:100%; height:100%; object-fit:cover; transform:scaleX(-1)}
+.cam-ph{color:#D4D4D4; text-align:center; padding:24px}
+.cam-ph .big{font-size:15px; font-weight:700; color:#FAFAFA; margin-top:10px}
+.cam-overlay{position:absolute; inset:0; pointer-events:none; display:none}
+.cam-overlay.on{display:block}
+.scan{position:absolute; left:6%; right:6%; height:2px; background:linear-gradient(90deg,transparent,rgba(246,233,224,.9),transparent); box-shadow:0 0 12px rgba(246,233,224,.6); animation:scan 2.6s ease-in-out infinite}
+@keyframes scan{0%,100%{top:14%}50%{top:82%}}
+.cam-face{position:absolute; left:26%; top:16%; width:48%; height:66%; border:2px solid rgba(23,23,23,.9); border-radius:16px; box-shadow:0 0 0 4px rgba(23,23,23,.18)}
+.cam-face .tagp{position:absolute; top:-11px; left:10px; background:var(--clay); color:#fff; font-size:10px; font-weight:700; padding:2px 8px; border-radius:999px; letter-spacing:.05em}
+.sig-row{display:flex; gap:10px; margin-top:14px}
+.sig{flex:1; background:var(--bg-2); border:1px solid var(--line); border-radius:12px; padding:11px 12px}
+.sig .t{font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--ink-3); font-weight:600}
+.sig .bar{height:7px; border-radius:999px; background:var(--line-2); margin-top:9px; overflow:hidden}
+.sig .bar i{display:block; height:100%; border-radius:999px; background:linear-gradient(90deg,var(--lime),var(--clay)); width:0; transition:width .9s cubic-bezier(.4,1.2,.4,1)}
+.sig .v{font-size:12px; font-weight:700; margin-top:6px}
+
+/* denuncia */
+.link-box{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+.link-box input{flex:1; min-width:240px; font:inherit; font-size:13px; padding:12px 14px; border:1px solid var(--line-2); border-radius:11px; background:var(--bg-2); color:var(--ink-2)}
+.dtype{display:flex; gap:8px; flex-wrap:wrap; margin-top:6px}
+.dtype .d{font-size:12px; padding:6px 11px; border-radius:999px; border:1px solid var(--line-2); background:var(--card); color:var(--ink-2)}
+.dlist{display:grid; gap:10px}
+.drow{display:grid; grid-template-columns:auto 1fr auto; gap:14px; align-items:center; padding:13px 15px; border:1px solid var(--line); border-radius:13px; background:var(--card)}
+.drow .senti{font-size:11px; font-weight:700; padding:4px 10px; border-radius:999px}
+
+/* compliance checklist */
+.check{display:grid; gap:10px}
+.check .row{display:grid; grid-template-columns:auto 1fr auto; gap:12px; align-items:center; padding:13px 15px; border:1px solid var(--line); border-radius:13px; background:var(--card)}
+.check .ok{width:26px;height:26px;border-radius:50%; background:var(--z-segura-s); color:var(--z-otima); display:grid; place-items:center}
+.check .h{font-weight:700; font-size:13.5px}
+.check .s{font-size:12px; color:var(--ink-3)}
+.check .st{font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--z-otima)}
+.export-card{padding:20px; border:1px solid var(--line); border-radius:16px; background:var(--card); box-shadow:var(--shadow-sm); display:flex; flex-direction:column}
+.export-card .ic{width:40px;height:40px;border-radius:11px;background:var(--clay-soft);color:var(--clay-2);display:grid;place-items:center; margin-bottom:12px}
+.export-card h4{font-size:15px}
+.export-card p{font-size:12.5px; color:var(--ink-3); margin:6px 0 16px; flex:1}
+
+/* footer */
+.foot{max-width:var(--maxw); margin:0 auto; padding:26px 24px 40px; color:var(--ink-3); font-size:12.5px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; border-top:1px solid var(--line); margin-top:40px}
+.foot .dot{width:4px;height:4px;border-radius:50%;background:var(--line-2)}
+
+/* misc */
+.note{font-size:12px; color:var(--ink-3)}
+.kicker{color:var(--clay-2); font-weight:600}
+.pillbadge{display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--clay-2); background:var(--clay-soft); padding:5px 11px; border-radius:999px}
+.toast{position:fixed; left:50%; bottom:26px; transform:translateX(-50%) translateY(20px); background:var(--ink); color:#fff; padding:12px 20px; border-radius:999px; font-size:13px; font-weight:600; opacity:0; pointer-events:none; transition:.3s; z-index:80; box-shadow:var(--shadow-lg)}
+.toast.on{opacity:1; transform:translateX(-50%) translateY(0)}
+
+/* status bar — fiscalização ativa */
+.statusbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:var(--clay-2);color:#E5E5E5;border-radius:12px;padding:12px 18px;font-size:13px;margin-bottom:8px}
+.statusbar .live{display:inline-flex;align-items:center;gap:8px;font-weight:700}
+.statusbar .live .pulse{width:9px;height:9px;border-radius:50%;background:var(--lime);box-shadow:0 0 0 0 rgba(23,23,23,.6);animation:pulse 1.9s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(23,23,23,.55)}70%{box-shadow:0 0 0 10px rgba(23,23,23,0)}100%{box-shadow:0 0 0 0 rgba(23,23,23,0)}}
+.statusbar .sep{opacity:.4}
+.statusbar b{color:#fff}
+.statusbar a{margin-left:auto;color:var(--lime);font-weight:600;text-decoration:underline;text-underline-offset:3px;white-space:nowrap;cursor:pointer}
+/* why-now stats band */
+.why{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+.why .stat{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;box-shadow:var(--shadow-sm)}
+.why .stat .n{font-size:25px;font-weight:700;letter-spacing:-.02em;color:var(--clay-2)}
+.why .stat .l{font-size:12.5px;color:var(--ink-2);margin-top:6px;line-height:1.4}
+.why .stat .src{font-size:10px;color:var(--ink-3);margin-top:9px;text-transform:uppercase;letter-spacing:.05em}
+/* inventário de riscos */
+.inv{width:100%;border-collapse:collapse;font-size:13px}
+.inv th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3);font-weight:600;padding:8px 10px;border-bottom:1px solid var(--line-2)}
+.inv td{padding:11px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+.inv tr:last-child td{border-bottom:0}
+.inv .factor{font-weight:600;color:var(--ink)}
+.inv .factor small{display:block;font-weight:400;color:var(--ink-3);font-size:11px;margin-top:2px}
+.zbadge{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;white-space:nowrap}
+.mx{font-weight:700;font-variant-numeric:tabular-nums;text-align:center}
+/* camera deliverables */
+.deliv{padding:18px;border:1px solid var(--line);border-radius:16px;background:var(--card);box-shadow:var(--shadow-sm);display:flex;flex-direction:column}
+.deliv .top{display:flex;align-items:center;gap:10px}
+.deliv .ic{width:34px;height:34px;border-radius:10px;background:var(--clay-soft);color:var(--clay-2);display:grid;place-items:center;flex:none}
+.deliv h4{font-size:14.5px}
+.deliv p{font-size:12.5px;color:var(--ink-2);margin:9px 0 0;flex:1}
+.deliv .cav{font-size:11px;color:var(--ink-3);margin-top:11px;border-top:1px dashed var(--line-2);padding-top:9px}
+.deliv .cav b{color:var(--ink-2)}
+/* penalty */
+.penalty{display:flex;gap:20px;align-items:center;flex-wrap:wrap;background:linear-gradient(90deg,var(--z-alto-s),#fff 72%);border:1px solid var(--line-2);border-radius:16px;padding:18px 20px}
+.penalty .amt{font-size:28px;font-weight:700;color:var(--z-alto);line-height:1}
+/* scope por porte */
+.scope{display:flex;gap:10px;flex-wrap:wrap}
+.scope .sc{border:1px solid var(--line-2);border-radius:12px;padding:11px 15px;background:var(--card);font-size:12px;color:var(--ink-2);flex:1;min-width:180px}
+.scope .sc b{display:block;font-size:12.5px;color:var(--ink);margin-bottom:3px}
+/* principle banner */
+.principle{display:flex;gap:13px;align-items:center;background:var(--clay-soft);border:1px solid var(--line-2);border-radius:14px;padding:14px 18px;margin-top:2px}
+.principle .q{font-size:15px;font-weight:500;color:var(--clay-2);line-height:1.4;letter-spacing:-.01em}
+/* responsive */
+@media(max-width:920px){
+  .why{grid-template-columns:repeat(2,1fr)}
+  .hero{grid-template-columns:1fr} .kpis{grid-template-columns:repeat(2,1fr)}
+  .two,.three{grid-template-columns:1fr} .hero h1{font-size:32px}
+}
+svg{display:block}
+.brand .mark{background:#0A0A0A !important;border-color:#0A0A0A !important;overflow:hidden}.brand .mark img,.markbig img{display:block}.markbig{background:#0A0A0A !important;color:#fff !important;overflow:hidden}
+</style>
+</head>
+<body>
+
+<!-- ==================== TOPBAR ==================== -->
+<header class="topbar">
+  <div class="topbar-in">
+    <a class="brand" href="#">
+      <span class="mark" aria-hidden="true"><img src="sougni-cube.webp?v=cube1" width="20" height="20" alt="Sougni" decoding="async" style="display:block" /></span>
+      <span>
+        <span class="name">EGO Pulse</span>
+        <span class="sub" style="display:block">Riscos Psicossociais · NR-1</span>
+      </span>
+    </a>
+    <nav class="top-nav">
+      <span class="chip" title="Zona de risco predominante da organização"><span class="dot" style="background:var(--z-segura)"></span> Zona Segura</span>
+      <button onclick="go('conformidade')">Relatórios</button>
+      <button class="pill" onclick="toast('Demonstração — conta de exemplo')">Grupo Meridiano ▾</button>
+    </nav>
+  </div>
+</header>
+
+<main class="shell">
+
+  <!-- ==================== STATUS DE FISCALIZAÇÃO ==================== -->
+  <div class="statusbar">
+    <span class="live"><span class="pulse"></span> Fiscalização punitiva NR-1 ativa</span>
+    <span class="sep">·</span>
+    <span>há <b id="daysCounter">—</b> dias (desde <b>26/05/2026</b>) o auditor não orienta mais: <b>autua</b>.</span>
+    <a onclick="go('conformidade')">Ver minha exposição →</a>
+  </div>
+
+  <!-- ==================== HERO ==================== -->
+  <p class="eyebrow">Painel executivo · saúde organizacional</p>
+  <div class="hero" style="margin-top:12px">
+    <div class="card hero-copy">
+      <h1>Do <span class="hl">sinal</span> ao cuidado,<br>antes do afastamento.</h1>
+      <p class="lede">O EGO Pulse transforma a NR-1 de obrigação em inteligência. Em vez de sobrecarregar cada colaborador com formulários, ele lê o <strong>clima emocional agregado</strong> da empresa — hora a hora, com câmera consentida e processada localmente. <strong>Sinaliza ao RH. A resolução é humana.</strong></p>
+      <div class="hero-cta">
+        <a class="btn lime" onclick="go('camera')">Ver o radar de clima</a>
+        <a class="btn ghost" onclick="go('conformidade')">Conformidade NR-1</a>
+      </div>
+      <div class="reassure">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        processado no dispositivo · sem vídeo armazenado · dados agregados · 100% LGPD
+      </div>
+    </div>
+
+    <!-- IHO gauge -->
+    <div class="card iho">
+      <div class="lbl">
+        <div>
+          <div class="eyebrow">Índice de Saúde Organizacional</div>
+          <div class="note" style="margin-top:3px">Últimos 14 dias · 7 áreas</div>
+        </div>
+        <span class="pillbadge" id="ihoTrend">▲ 4 pts</span>
+      </div>
+      <div class="gauge-wrap">
+        <svg id="gauge" width="260" height="150" viewBox="0 0 260 150"></svg>
+        <div class="gauge-num">
+          <div class="v mono" id="ihoVal">73</div>
+          <div class="z" id="ihoZone">Zona Segura</div>
+        </div>
+      </div>
+      <div class="iho-foot">
+        <div class="m"><div class="n mono">87%</div><div class="t">Adesão ao termo</div></div>
+        <div class="m"><div class="n mono trend-down">3</div><div class="t">Alertas ativos</div></div>
+        <div class="m"><div class="n mono">418</div><div class="t">Colaboradores</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- KPI strip -->
+  <div class="kpis" id="kpis"></div>
+
+  <!-- consent ribbon -->
+  <div class="ribbon">
+    <span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
+    <div class="txt"><b>Base legal ativa e revogável.</b> 364 de 418 colaboradores assinaram o Termo de Consentimento Livre e Esclarecido. Inferência local, agregação com N mínimo de 5 e RIPD registrado. Nenhum sinal é usado de forma individual ou punitiva.</div>
+    <a onclick="go('conformidade')">Ver conformidade &amp; LGPD →</a>
+  </div>
+
+  <!-- ==================== POR QUE AGORA ==================== -->
+  <div class="section">
+    <div class="section-head">
+      <div><h2>Por que agora</h2><p>A NR-1 é a resposta regulatória a uma epidemia — e a fatura já chegou ao FAP das empresas.</p></div>
+      <span class="note">Fontes: INSS · ANAMT · MTE (2025–2026)</span>
+    </div>
+    <div class="why">
+      <div class="stat"><div class="n mono">534.904</div><div class="l">afastamentos por transtornos mentais em <b>2025</b> — o maior número da série histórica.</div><div class="src">INSS / ANAMT</div></div>
+      <div class="stat"><div class="n mono">+67%</div><div class="l">de crescimento nos afastamentos por saúde mental de 2023 → 2024. Burnout mais que triplicou (1.760 → 6.985).</div><div class="src">INSS / ANAMT</div></div>
+      <div class="stat"><div class="n mono">R$ 954 mi</div><div class="l">pagos em benefícios por causa mental em 2024. O custo humano virou custo contábil.</div><div class="src">INSS / ANAMT</div></div>
+      <div class="stat"><div class="n mono">R$ 1.700–5.200</div><div class="l">multa NR-28 <b>por item, por estabelecimento</b> — escalona por nº de empregados e reincidência.</div><div class="src">NR-28 · MTE</div></div>
+    </div>
+  </div>
+
+  <!-- ==================== TABS ==================== -->
+  <div class="section">
+    <div class="tabs" role="tablist" id="tabs">
+      <button class="tab" role="tab" aria-selected="true" data-p="visao">Visão Geral</button>
+      <button class="tab" role="tab" aria-selected="false" data-p="camera">Radar de Clima <span class="pillbadge" style="padding:2px 7px">novo</span></button>
+      <button class="tab" role="tab" aria-selected="false" data-p="instrumentos">Instrumentos</button>
+      <button class="tab" role="tab" aria-selected="false" data-p="denuncias">Canal de Denúncias</button>
+      <button class="tab" role="tab" aria-selected="false" data-p="planos">Planos de Ação</button>
+      <button class="tab" role="tab" aria-selected="false" data-p="conformidade">Conformidade NR-1</button>
+    </div>
+
+    <!-- ---------- PANEL: VISÃO GERAL ---------- -->
+    <section class="panel active" id="p-visao">
+      <div class="two">
+        <div class="card pad">
+          <div class="section-head" style="margin-bottom:10px">
+            <div><h2 style="font-size:18px">Radar de clima emocional</h2><p>Sinal agregado por área · 14 dias · nunca individual</p></div>
+          </div>
+          <div style="overflow-x:auto"><table class="heat" id="heat"></table></div>
+          <div class="legend" id="heatLegend"></div>
+        </div>
+        <div class="card pad">
+          <div class="section-head" style="margin-bottom:10px">
+            <div><h2 style="font-size:18px">Alerta precoce de burnout</h2><p>Índice de exaustão agregado · tendência 8 semanas</p></div>
+          </div>
+          <svg id="burnChart" width="100%" height="220" viewBox="0 0 520 220" preserveAspectRatio="none"></svg>
+          <div class="legend" id="burnLegend"></div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-head">
+          <div><h2>Alertas para o RH</h2><p>Recomendações agregadas que embasam o encaminhamento. <span class="kicker">Sinais que orientam o RH.</span></p></div>
+          <span class="note">Atualizado há 12 min</span>
+        </div>
+        <div class="alerts" id="alerts"></div>
+      </div>
+    </section>
+
+    <!-- ---------- PANEL: RADAR DE CLIMA (câmera) ---------- -->
+    <section class="panel" id="p-camera">
+      <div class="two">
+        <div class="card pad">
+          <span class="pillbadge">Tecnologia EGO Signals</span>
+          <h2 style="font-size:20px; margin-top:12px">Um radar humano, a cada hora.</h2>
+          <p class="note" style="font-size:13.5px; color:var(--ink-2); margin-top:8px">Com o consentimento do colaborador, o EGO Pulse capta um instante por hora e roda a inferência dos sinais afetivos <b>no próprio dispositivo</b> — expressão facial (valência/energia) e, quando disponível, ritmo cardíaco por rPPG. A imagem <b>nunca sai do navegador</b>. Só o sinal numérico, já anonimizado e somado ao time, chega ao painel.</p>
+          <div class="sig-row" id="sigRow"></div>
+          <div style="margin-top:16px; display:flex; gap:10px; flex-wrap:wrap">
+            <button class="btn primary" id="camBtn" onclick="toggleCam()">Ativar câmera (demo local)</button>
+            <button class="btn ghost" onclick="toast('O colaborador pode pausar a qualquer momento — sem justificar.')">Como pausar</button>
+          </div>
+          <p class="note" style="margin-top:12px">Demonstração ao vivo, no seu navegador. Nada é gravado, enviado ou armazenado. É exatamente o que roda em <b>ego.sougni.com</b>.</p>
+        </div>
+        <div class="card pad">
+          <div class="cam-stage" id="camStage">
+            <div class="cam-ph" id="camPh">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" style="margin:0 auto"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+              <div class="big">Câmera desligada</div>
+              <div style="font-size:12px; margin-top:4px">Clique em “Ativar câmera (demo local)” para ver o sinal sendo lido — localmente.</div>
+            </div>
+            <div class="cam-overlay" id="camOverlay">
+              <div class="cam-face"><span class="tagp">sinal captado · local</span></div>
+              <div class="scan"></div>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:10px; margin-top:12px">
+            <span class="chip"><span class="dot" style="background:var(--z-segura)"></span> Processamento on-device</span>
+            <span class="chip"><span class="dot" style="background:var(--clay)"></span> 0 bytes de vídeo salvos</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="principle section" style="margin-top:22px">
+        <span style="font-size:22px">⚖️</span>
+        <div class="q">“A avaliação é sobre as <b>condições e a organização do trabalho</b> — nunca sobre a saúde individual do colaborador.”<span style="display:block;font-family:var(--sans);font-style:normal;font-size:12px;color:var(--ink-3);margin-top:5px">Princípio do Guia de Fatores de Riscos Psicossociais do MTE. O sinal da câmera é um barômetro coletivo das condições — por isso agregado, opcional e alerta-para-apoio.</span></div>
+      </div>
+
+      <div class="section">
+        <div class="section-head">
+          <div><h2>Sinal Precoce Coletivo</h2><p>Quatro leituras agregadas que nenhum sistema de NR-1 entrega hoje. Cada uma declara a própria incerteza. <span class="kicker">Precisão, não promessa.</span></p></div>
+        </div>
+        <div class="two">
+          <div class="deliv">
+            <div class="top"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4"/><circle cx="12" cy="12" r="3"/></svg></span><h4>Termômetro de Fadiga da Equipe</h4></div>
+            <p>Tendência de sonolência/alerta por turno (PERCLOS — abertura ocular), em grupos ≥5, com banda de confiança. É o sinal de maior validação — e o único com justificativa de <b>segurança</b>.</p>
+            <div class="cav"><b>Caveat honesto:</b> mede sonolência, não estresse nem afeto; confiável só em janelas longas.</div>
+          </div>
+          <div class="deliv">
+            <div class="top"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l2 5 4-10 2 5h6"/></svg></span><h4>Índice de Tensão Autonômica</h4></div>
+            <p>Estimativa de tensão via rPPG-HRV (ritmo cardíaco pela câmera), em heat-strip por período do dia × equipe. Célula é <b>suprimida</b> quando a luz/confiança são insuficientes.</p>
+            <div class="cav"><b>Caveat honesto:</b> correlato probabilístico; há viés por tom de pele (erro sobe de ~4 p/ ~14 bpm) — por isso suprimimos em baixa confiança.</div>
+          </div>
+          <div class="deliv">
+            <div class="top"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12c2-4 4-4 6 0s4 4 6 0 4-4 6 0"/></svg></span><h4>Onda de Clima Afetivo</h4></div>
+            <p>Variação relativa da valência vs. a <b>própria linha de base</b> da equipe — sempre com faixa de incerteza. Tendência, jamais rótulo de emoção por pessoa.</p>
+            <div class="cav"><b>Caveat honesto:</b> expressão facial não é leitura confiável de emoção (Barrett); FER real fica em ~65–70% — logo, só tendência agregada.</div>
+          </div>
+          <div class="deliv" style="border-color:var(--clay-2);box-shadow:0 8px 26px rgba(0,55,45,.10)">
+            <div class="top"><span class="ic" style="background:var(--clay);color:#fff"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-4.5-9.5-9C1 9 3 5.5 6.5 5.5c2 0 3.5 1.5 5.5 3.5 2-2 3.5-3.5 5.5-3.5C21 5.5 23 9 21.5 12 19 16.5 12 21 12 21z"/></svg></span><h4>Gatilho “Oferecer Apoio”</h4></div>
+            <p>Se o sinal cruza um limiar, aparece um card <b>no dispositivo do próprio colaborador</b> com recursos de bem-estar (EAP/terapia). <b>Nunca notifica o gestor.</b> Fecha o ciclo cuidado sem vigilância.</p>
+            <div class="cav"><b>Por isso:</b> câmera desligada por padrão entre checagens · amostragem horária · pausa em 1 clique.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- PANEL: INSTRUMENTOS ---------- -->
+    <section class="panel" id="p-instrumentos">
+      <div class="section-head">
+        <div><h2>Instrumentos validados — sob demanda</h2><p>O sinal da câmera é o radar contínuo. Quando um alerta pede aprofundamento, dispare um instrumento científico para o time certo — sem afogar a empresa em questionários.</p></div>
+      </div>
+      <div class="three" id="instGrid"></div>
+    </section>
+
+    <!-- ---------- PANEL: DENÚNCIAS ---------- -->
+    <section class="panel" id="p-denuncias">
+      <div class="card pad">
+        <div class="section-head" style="margin-bottom:8px">
+          <div><h2 style="font-size:18px">Link do Canal de Denúncias</h2><p>Canal anônimo e confidencial. As denúncias chegam com análise de sentimento por IA e classificação de criticidade.</p></div>
+        </div>
+        <div class="link-box">
+          <input id="denLink" readonly value="https://pulse.ego.sougni.com/canal/grupo-meridiano-a1b2c3" />
+          <button class="btn ghost" onclick="copyLink()">Copiar</button>
+          <a class="btn primary" href="#" onclick="toast('Abriria o formulário anônimo do colaborador'); return false;">Abrir</a>
+        </div>
+        <div class="dtype" id="dtype"></div>
+        <p class="note" style="margin-top:12px"><b>Importante:</b> link único da empresa. Compartilhe por e-mail, intranet ou mural. A identidade do colaborador nunca é revelada.</p>
+      </div>
+
+      <div class="kpis section" id="denKpis" style="grid-template-columns:repeat(4,1fr)"></div>
+
+      <div class="card pad section">
+        <div class="section-head" style="margin-bottom:8px"><div><h2 style="font-size:18px">Lista de denúncias</h2><p>Priorizadas por criticidade e sentimento</p></div></div>
+        <div class="dlist" id="dlist"></div>
+      </div>
+    </section>
+
+    <!-- ---------- PANEL: PLANOS ---------- -->
+    <section class="panel" id="p-planos">
+      <div class="section-head">
+        <div><h2>Planos de Ação</h2><p>Cada alerta vira um plano com responsável, prazo e evidência — exatamente o que a fiscalização da NR-1 espera ver documentado.</p></div>
+        <button class="btn primary" onclick="toast('Abriria o criador de plano de ação')">+ Novo plano</button>
+      </div>
+      <div class="grid" id="planos"></div>
+    </section>
+
+    <!-- ---------- PANEL: CONFORMIDADE ---------- -->
+    <section class="panel" id="p-conformidade">
+
+      <!-- exposição a penalidade + escopo -->
+      <div class="penalty">
+        <div>
+          <div class="eyebrow" style="color:var(--z-alto)">Exposição estimada · NR-28</div>
+          <div class="amt mono">R$ 6.900 – 20.800</div>
+          <div class="note" style="margin-top:4px">2 itens em aberto × faixa I2–I4, por estabelecimento. <b>Valor não é matemático</b> — há discricionariedade do auditor-fiscal.</div>
+        </div>
+        <div class="scope" style="flex:1;margin-left:auto">
+          <div class="sc"><b>CLT pleno</b>PGR + Inventário psicossocial obrigatórios.</div>
+          <div class="sc"><b>ME / EPP (grau 1–2)</b>Declaração de inexistência <u>não cobre</u> o psicossocial.</div>
+          <div class="sc"><b>MEI</b>Dispensado do <i>documento</i> PGR — <u>não</u> da gestão do risco.</div>
+        </div>
+      </div>
+
+      <!-- INVENTÁRIO DE RISCOS PSICOSSOCIAIS -->
+      <div class="card pad section" style="margin-top:18px">
+        <div class="section-head" style="margin-bottom:8px">
+          <div><h2 style="font-size:18px">Inventário de Riscos Psicossociais</h2><p>Cada fator classificado por <b>probabilidade × severidade</b> (item 1.5.4.4.2) e vinculado ao PGR. É isto que o auditor exige ver — não boas intenções.</p></div>
+          <span class="pillbadge">7 fatores · atualizado hoje</span>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="inv" id="inv"></table>
+        </div>
+        <div class="ribbon" style="margin-top:16px;background:linear-gradient(90deg,var(--bg-2),#fff 70%)">
+          <span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4M12 16h.01"/><circle cx="12" cy="12" r="9"/></svg></span>
+          <div class="txt"><b>Precisão eSocial:</b> risco psicossocial se comprova no <b>PGR/Inventário</b>, não no <b>S-2240</b> (a Tabela 24 não tem código para FRPRT). Cruzamos afastamentos <b>CID-F</b> com o Inventário como sinal de auditoria — e enviamos <b>09.01.001</b> quando não há agente da Tabela 24.</div>
+        </div>
+      </div>
+
+      <div class="two">
+        <div class="card pad">
+          <div class="section-head" style="margin-bottom:10px"><div><h2 style="font-size:18px">Checklist NR-1 · riscos psicossociais</h2><p>Rastreabilidade do GRO/PGR</p></div><span class="pillbadge" id="confPct">92% completo</span></div>
+          <div class="check" id="check"></div>
+        </div>
+        <div class="card pad">
+          <div class="section-head" style="margin-bottom:10px"><div><h2 style="font-size:18px">LGPD &amp; governança de dados</h2><p>Como o sinal da câmera se sustenta juridicamente</p></div></div>
+          <div class="check" id="lgpd"></div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-head"><div><h2>Exportações reguladas</h2><p>Documentação pronta para auditor-fiscal, SESMT e DPO</p></div></div>
+        <div class="three">
+          <div class="export-card">
+            <span class="ic"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span>
+            <h4>Relatório Consolidado</h4>
+            <p>PDF assinado com inventário de riscos psicossociais, sinais agregados, planos de ação e denúncias do período.</p>
+            <button class="btn primary" onclick="toast('Gerando PDF assinado…')">Exportar PDF assinado</button>
+          </div>
+          <div class="export-card">
+            <span class="ic"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
+            <h4>Conformidade LGPD</h4>
+            <p>RIPD, base legal, registro de consentimentos, política de retenção e log de anonimização.</p>
+            <button class="btn ghost" onclick="toast('Gerando relatório de conformidade…')">Exportar conformidade</button>
+          </div>
+          <div class="export-card">
+            <span class="ic"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg></span>
+            <h4>Backup Regulado</h4>
+            <p>Exportação JSON de todos os dados agregados do período para guarda e portabilidade.</p>
+            <button class="btn ghost" onclick="toast('Exportando backup JSON…')">Exportar JSON</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<footer class="foot" style="flex-direction:column;align-items:flex-start;gap:8px">
+  <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+    <span>EGO Pulse · uma plataforma <b>Sougni</b> — Intelligence on your side</span>
+    <span class="dot"></span>
+    <span>Sinais que orientam o RH</span>
+    <span class="dot"></span>
+    <span>SRQ-20 · WHOQOL · DASS-21 · MBI-GS · AUDIT-C · DAST-10 · ASSIST-Lite · HSE · EGO Signals</span>
+    <span class="dot"></span>
+    <span>© 2026 · demonstração</span>
+  </div>
+  <div style="font-size:11px;line-height:1.6;color:var(--ink-3)">
+    <b>Fontes:</b> Portaria MTE nº 1.419/2024 &amp; nº 765/2025 · Guia de Fatores de Riscos Psicossociais (MTE) · NR-28 · INSS/ANAMT (afastamentos 2023–2025) · LGPD Lei 13.709/2018 (Art. 5, XII &amp; Art. 11) · ISO 45003. Enquadramento de câmera segue princípios de minimização, RIPD e uso não-punitivo; sinais afetivos têm acurácia limitada (~65–70%) e são usados apenas agregados, opcionais e alerta-para-apoio.
+  </div>
+</footer>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================
+   EGO Pulse — painel de riscos psicossociais (NR-1)
+   Dados de denúncia são REAIS (backend EGO Pulse); demais painéis usam
+   dados de demonstração determinísticos até serem ligados às fontes.
+   ============================================================ */
+
+/* ---------- Gate de sessão: só gestor_rh (ou admin) ---------- */
+const PULSE_API = 'https://ego-backend-lerb.onrender.com';
+let AUTH = null;
+(function gate() {
+  try { AUTH = JSON.parse(sessionStorage.getItem('ego_auth') || 'null'); } catch {}
+  const expired = AUTH && AUTH.exp && Date.now() / 1000 > AUTH.exp;
+  if (!AUTH || !AUTH.token || expired || (AUTH.role !== 'gestor_rh' && AUTH.role !== 'admin')) {
+    location.replace('/login.html');
+  }
+})();
+
+const ZONES = [
+  {k:'otima',   name:'Zona Ótima',      c:'var(--z-otima)',    s:'var(--z-otima-s)',    min:85},
+  {k:'segura',  name:'Zona Segura',     c:'var(--z-segura)',   s:'var(--z-segura-s)',   min:70},
+  {k:'moderada',name:'Zona Moderada',   c:'var(--z-moderada)', s:'var(--z-moderada-s)', min:55},
+  {k:'atencao', name:'Zona de Atenção', c:'var(--z-atencao)',  s:'var(--z-atencao-s)',  min:40},
+  {k:'alto',    name:'Zona de Alto Risco', c:'var(--z-alto)',  s:'var(--z-alto-s)',     min:0},
+];
+const zoneByScore = v => ZONES.find(z => v >= z.min);
+const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* ---------- toast + nav ---------- */
+let toastT;
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('on');
+  clearTimeout(toastT); toastT = setTimeout(()=>t.classList.remove('on'), 2600);
+}
+function go(p){
+  document.querySelectorAll('.tab').forEach(b=>{
+    const on = b.dataset.p===p; b.setAttribute('aria-selected', on);
+  });
+  document.querySelectorAll('.panel').forEach(s=> s.classList.toggle('active', s.id==='p-'+p));
+  window.scrollTo({top: document.querySelector('.tabs').offsetTop-80, behavior:'smooth'});
+}
+document.getElementById('tabs').addEventListener('click', e=>{
+  const b = e.target.closest('.tab'); if(b) go(b.dataset.p);
+});
+function copyLink(){
+  const el = document.getElementById('denLink');
+  navigator.clipboard?.writeText(el.value).catch(()=>{});
+  toast('Link copiado para a área de transferência');
+}
+
+/* ============================================================
+   GAUGE (IHO)
+   ============================================================ */
+function drawGauge(val){
+  const svg = document.getElementById('gauge');
+  const cx=130, cy=128, r=104, w=17;
+  // top semicircle: t in [0..1] maps to angle 180°(left) → 0°(right); y uses -sin for the upper arc
+  const P=(t)=>{ const th=Math.PI*(1-t); return [cx + r*Math.cos(th), cy - r*Math.sin(th)]; };
+  const seg=(t0,t1,color)=>{
+    const [x0,y0]=P(t0),[x1,y1]=P(t1);
+    return `<path d="M ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r} ${r} 0 0 1 ${x1.toFixed(2)} ${y1.toFixed(2)}" fill="none" stroke="${color}" stroke-width="${w}" stroke-linecap="round"/>`;
+  };
+  const segs=[cssv('--z-alto'),cssv('--z-atencao'),cssv('--z-moderada'),cssv('--z-segura'),cssv('--z-otima')];
+  const gap=0.012;
+  let html='';
+  // track
+  html+=`<path d="M ${(cx-r)} ${cy} A ${r} ${r} 0 0 1 ${(cx+r)} ${cy}" fill="none" stroke="${cssv('--line')}" stroke-width="${w+2}" stroke-linecap="round"/>`;
+  for(let i=0;i<5;i++){ html+=seg(i/5 + (i?gap:0), (i+1)/5 - (i<4?gap:0), segs[i]); }
+  // marker dot on the arc at the value
+  const frac=Math.max(0,Math.min(100,val))/100;
+  const [mx,my]=P(frac);
+  const z=zoneByScore(val);
+  html+=`<circle cx="${mx.toFixed(2)}" cy="${my.toFixed(2)}" r="10" fill="#fff" stroke="${z.c}" stroke-width="4"/>`;
+  html+=`<circle cx="${mx.toFixed(2)}" cy="${my.toFixed(2)}" r="3.2" fill="${z.c}"/>`;
+  svg.innerHTML=html;
+  document.getElementById('ihoVal').textContent=val;
+  const zEl=document.getElementById('ihoZone'); zEl.textContent=z.name; zEl.style.color=z.c;
+}
+
+/* ============================================================
+   KPI STRIP  (+ sparklines)
+   ============================================================ */
+const KPIS=[
+  {t:'Índice de Saúde', v:'73', s:'▲ 4 vs. mês anterior', spark:[64,66,63,68,67,70,69,71,73], col:'--z-segura'},
+  {t:'Adesão ao termo', v:'87%', s:'364 de 418 ativos', spark:[52,60,66,71,75,80,83,85,87], col:'--clay'},
+  {t:'Sinal de energia', v:'+0,31', s:'valência agregada', spark:[.2,.25,.18,.3,.28,.33,.29,.31,.31].map(x=>x*100), col:'--z-otima'},
+  {t:'Alertas ativos', v:'3', s:'1 crítico · 2 atenção', spark:[6,5,5,4,5,4,4,3,3], col:'--z-atencao', inv:true},
+  {t:'Denúncias (30d)', v:'4', s:'1 crítica · 3 em análise', spark:[0,1,1,2,2,3,3,4,4], col:'--z-alto'},
+];
+function sparkPath(vals,w,h){
+  const mn=Math.min(...vals),mx=Math.max(...vals),rng=(mx-mn)||1;
+  const step=w/(vals.length-1);
+  return vals.map((v,i)=>`${i?'L':'M'} ${(i*step).toFixed(1)} ${(h-4-((v-mn)/rng)*(h-8)).toFixed(1)}`).join(' ');
+}
+function renderKpis(){
+  document.getElementById('kpis').innerHTML = KPIS.map((k,idx)=>{
+    const col=cssv(k.col); const w=200,h=34;
+    const d=sparkPath(k.spark,w,h);
+    return `<div class="kpi">
+      <div class="k-top"><span class="t">${k.t}</span></div>
+      <div class="k-v mono">${k.v}</div>
+      <div class="k-s">${k.s}</div>
+      <svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+        <defs><linearGradient id="sg${idx}" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0" stop-color="${col}" stop-opacity=".28"/><stop offset="1" stop-color="${col}" stop-opacity="0"/>
+        </linearGradient></defs>
+        <path d="${d} L ${w} ${h} L 0 ${h} Z" fill="url(#sg${idx})"/>
+        <path d="${d}" fill="none" stroke="${col}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>`;
+  }).join('');
+}
+
+/* ============================================================
+   CLIMATE HEATMAP
+   ============================================================ */
+const DEPTS=['Comercial','Atendimento','Operações','Logística','Tecnologia','Financeiro','Pessoas & RH'];
+// deterministic-ish daily scores per dept (14 days)
+const HEAT=[
+  [72,70,68,66,63,60,58,55,54,52,50,49,47,46], // Comercial — declínio (alerta)
+  [64,66,63,62,60,58,57,59,55,54,52,51,50,48], // Atendimento
+  [78,77,79,76,78,75,77,74,76,73,75,74,72,73], // Operações
+  [70,71,69,72,70,71,68,70,69,71,70,72,71,70], // Logística
+  [82,83,81,84,82,85,83,84,86,85,87,86,88,87], // Tecnologia — ótima
+  [66,67,65,64,66,63,65,62,64,61,63,60,62,61], // Financeiro
+  [88,86,87,89,88,90,89,88,90,89,91,90,89,88], // RH
+];
+function renderHeat(){
+  const days=HEAT[0].length;
+  const head='<tr><th></th>'+Array.from({length:days},(_,i)=>`<th>${i%2?'':('D-'+(days-1-i))}</th>`).join('')+'</tr>';
+  const rows=DEPTS.map((d,r)=>{
+    const cells=HEAT[r].map(v=>{
+      const z=zoneByScore(v);
+      return `<td class="cell" style="background:${z.c};opacity:${(0.35+ (v/100)*0.65).toFixed(2)}" title="${d} · ${v} · ${z.name}"></td>`;
+    }).join('');
+    return `<tr><td class="lbl">${d}</td>${cells}</tr>`;
+  }).join('');
+  document.getElementById('heat').innerHTML=head+rows;
+  document.getElementById('heatLegend').innerHTML=ZONES.slice().reverse().map(z=>
+    `<span class="li"><span class="sw" style="background:${z.c}"></span>${z.name}</span>`).join('');
+}
+
+/* ============================================================
+   BURNOUT EARLY-WARNING LINE CHART
+   ============================================================ */
+const BURN={
+  weeks:['S1','S2','S3','S4','S5','S6','S7','S8'],
+  series:[
+    {name:'Comercial', col:'--z-alto',    data:[28,30,33,38,44,49,55,61]},
+    {name:'Atendimento', col:'--z-atencao', data:[26,27,29,31,34,36,39,42]},
+    {name:'Média da empresa', col:'--ink-3', data:[22,23,24,24,26,27,28,29], dash:true},
+  ]
+};
+function renderBurn(){
+  const W=520,H=220,pl=34,pr=12,pt=16,pb=28;
+  const iw=W-pl-pr, ih=H-pt-pb, n=BURN.weeks.length, max=70;
+  const x=i=>pl+ (i/(n-1))*iw;
+  const y=v=>pt+ ih-(v/max)*ih;
+  let g='';
+  // grid + y labels
+  for(let v=0; v<=max; v+=14){
+    g+=`<line x1="${pl}" y1="${y(v)}" x2="${W-pr}" y2="${y(v)}" stroke="${cssv('--line')}" stroke-width="1"/>`;
+    g+=`<text x="${pl-7}" y="${y(v)+3}" text-anchor="end" font-size="9" fill="${cssv('--ink-3')}">${v}</text>`;
+  }
+  BURN.weeks.forEach((w,i)=> g+=`<text x="${x(i)}" y="${H-9}" text-anchor="middle" font-size="9" fill="${cssv('--ink-3')}">${w}</text>`);
+  // threshold band (atenção) at 40
+  g+=`<line x1="${pl}" y1="${y(40)}" x2="${W-pr}" y2="${y(40)}" stroke="${cssv('--z-atencao')}" stroke-width="1.2" stroke-dasharray="5 4"/>`;
+  g+=`<text x="${W-pr}" y="${y(40)-5}" text-anchor="end" font-size="8.5" fill="${cssv('--z-atencao')}">limiar de atenção</text>`;
+  BURN.series.forEach(s=>{
+    const col=cssv(s.col);
+    const d=s.data.map((v,i)=>`${i?'L':'M'} ${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(' ');
+    g+=`<path d="${d}" fill="none" stroke="${col}" stroke-width="${s.dash?1.6:2.4}" ${s.dash?'stroke-dasharray="4 4"':''} stroke-linecap="round" stroke-linejoin="round"/>`;
+    if(!s.dash){ const li=s.data.length-1; g+=`<circle cx="${x(li)}" cy="${y(s.data[li])}" r="3.5" fill="${col}"/>`; }
+  });
+  document.getElementById('burnChart').innerHTML=g;
+  document.getElementById('burnLegend').innerHTML=BURN.series.map(s=>
+    `<span class="li"><span class="sw" style="background:${cssv(s.col)}"></span>${s.name}</span>`).join('');
+}
+
+/* ============================================================
+   ALERTS FEED
+   ============================================================ */
+const ALERTS=[
+  {sev:'ALTO', col:'--z-alto', h:'Comercial — energia em queda há 8 dias',
+   d:'Valência agregada caiu 26 pts no período e o índice de exaustão cruzou o limiar de atenção. Coincide com o fechamento do trimestre.',
+   act:'Abrir plano'},
+  {sev:'ATEN', col:'--z-atencao', h:'Atendimento — variabilidade alta pós-turno',
+   d:'Oscilação de sinal concentrada no fim do 2º turno sugere sobrecarga de jornada. Sugerir revisão de escala.',
+   act:'Ver detalhe'},
+  {sev:'ATEN', col:'--z-moderada', h:'Financeiro — clima estável, porém baixo',
+   d:'Sem piora, mas 3 semanas em zona moderada. Bom momento para um pulso WHOQOL direcionado.',
+   act:'Disparar instrumento'},
+];
+function renderAlerts(){
+  document.getElementById('alerts').innerHTML=ALERTS.map(a=>`
+    <div class="alert-c">
+      <div class="sev" style="background:${cssv(a.col+'-s')};color:${cssv(a.col)}">${a.sev}</div>
+      <div class="body">
+        <div class="h">${a.h}</div>
+        <div class="d">${a.d}</div>
+        <span class="tag">⚑ sinal agregado · orienta o encaminhamento ao RH · N≥5</span>
+      </div>
+      <div class="go" onclick="toast('${a.act} →')">${a.act} →</div>
+    </div>`).join('');
+}
+
+/* ============================================================
+   INSTRUMENTS
+   ============================================================ */
+const INSTR=[
+  {tag:'Psicossociais', h:'HSE — Saúde e Segurança do Trabalho', q:35, d:'Fatores de risco psicossocial no modelo do Health & Safety Executive. Base do inventário NR-1.'},
+  {tag:'Burnout', h:'MBI-GS — Maslach Burnout Inventory', q:16, d:'Exaustão, cinismo e eficácia profissional. Padrão-ouro para esgotamento.'},
+  {tag:'DASS-21', h:'Depressão, Ansiedade e Estresse', q:21, d:'Triagem dimensional dos três eixos, amplamente validada em português.'},
+  {tag:'WHOQOL', h:'WHOQOL-BREF — Qualidade de Vida', q:26, d:'Percepção de qualidade de vida da OMS em quatro domínios.'},
+  {tag:'SRQ-20', h:'SRQ-20 — Sofrimento Mental', q:20, d:'Triagem de transtornos mentais comuns recomendada pela OMS.'},
+  {tag:'AUDIT-C', h:'AUDIT — Consumo de Álcool', q:10, d:'Rastreio de uso de risco de álcool.'},
+  {tag:'DAST-10', h:'DAST-10 — Uso de Substâncias', q:10, d:'Triagem de uso problemático de drogas.'},
+  {tag:'ASSIST-Lite', h:'ASSIST-Lite — Álcool, Tabaco e Substâncias', q:21, d:'Triagem OMS para 7 classes de substâncias.'},
+  {tag:'Jogos', h:'DSM-5 — Risco de Dependência de Jogos', q:9, d:'Sinais de transtorno por jogos eletrônicos/apostas.'},
+];
+function renderInstr(){
+  document.getElementById('instGrid').innerHTML=INSTR.map(i=>`
+    <div class="inst">
+      <div class="tag">${i.tag}</div>
+      <h4>${i.h}</h4>
+      <p>${i.d}</p>
+      <div class="meta"><span>${i.q} perguntas</span><span>validado</span><span>sob demanda</span></div>
+    </div>`).join('');
+}
+
+/* ============================================================
+   DENÚNCIAS
+   ============================================================ */
+const DTYPES=['Assédio Moral (Psicológico)','Assédio Sexual','Assédio Religioso','Injúria Racial','Bullying','Outros'];
+const DEN_KPIS=[
+  {t:'Total de denúncias', v:'4', s:'1 aberta · 3 resolvidas'},
+  {t:'Casos críticos', v:'1', s:'requer atenção imediata', col:'--z-alto'},
+  {t:'Sentimento negativo', v:'2', s:'classificados pela IA', col:'--z-atencao'},
+  {t:'Sentimento médio', v:'38%', s:'índice de positividade'},
+];
+const DEN=[
+  {t:'Assédio Moral', d:'Relato de cobrança pública excessiva por liderança de equipe.', senti:'Negativo', col:'--z-alto', st:'Aberta'},
+  {t:'Bullying', d:'Comentários recorrentes sobre colega em canal informal.', senti:'Negativo', col:'--z-atencao', st:'Em análise'},
+  {t:'Outros', d:'Sugestão sobre carga de reuniões e falta de foco.', senti:'Neutro', col:'--z-moderada', st:'Resolvida'},
+  {t:'Assédio Sexual', d:'Encaminhado ao comitê com sigilo — caso arquivado após apuração.', senti:'Crítico', col:'--z-alto', st:'Resolvida'},
+];
+function renderDen(){
+  document.getElementById('dtype').innerHTML=DTYPES.map(d=>`<span class="d">${d}</span>`).join('');
+  document.getElementById('denKpis').innerHTML=DEN_KPIS.map(k=>`
+    <div class="kpi"><div class="k-top"><span class="t">${k.t}</span></div>
+      <div class="k-v mono" ${k.col?`style="color:${cssv(k.col)}"`:''}>${k.v}</div>
+      <div class="k-s">${k.s}</div></div>`).join('');
+  document.getElementById('dlist').innerHTML=DEN.map(d=>`
+    <div class="drow">
+      <div class="senti" style="background:${cssv(d.col)}22;color:${cssv(d.col)}">${d.senti}</div>
+      <div><div style="font-weight:700;font-size:13.5px">${d.t}</div><div class="note" style="margin-top:2px">${d.d}</div></div>
+      <div class="note" style="font-weight:600">${d.st}</div>
+    </div>`).join('');
+}
+
+/* ============================================================
+   PLANOS DE AÇÃO
+   ============================================================ */
+const PLANOS=[
+  {h:'Revisar carga do fechamento trimestral — Comercial', own:'Camila (RH) · Diretoria Comercial', due:'Prazo: 12 dias', prog:35, orig:'Gerado a partir do alerta de burnout'},
+  {h:'Piloto de escala alternada — Atendimento', own:'Coord. Operações', due:'Prazo: 20 dias', prog:60, orig:'Gerado a partir do sinal de jornada'},
+  {h:'Roda de conversa + pulso WHOQOL — Financeiro', own:'Saúde Ocupacional', due:'Prazo: 8 dias', prog:15, orig:'Aprofundamento de zona moderada'},
+];
+function renderPlanos(){
+  document.getElementById('planos').innerHTML=PLANOS.map(p=>`
+    <div class="card pad">
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start">
+        <div><div style="font-weight:700;font-size:15px">${p.h}</div>
+          <div class="note" style="margin-top:4px">${p.own} · ${p.due}</div>
+          <div class="note" style="margin-top:4px"><span class="kicker">${p.orig}</span></div></div>
+        <span class="pillbadge">${p.prog}%</span>
+      </div>
+      <div class="sig" style="margin-top:12px;background:transparent;border:0;padding:0">
+        <div class="bar" style="margin-top:0"><i style="width:${p.prog}%"></i></div>
+      </div>
+    </div>`).join('');
+}
+
+/* ============================================================
+   COMPLIANCE CHECKLISTS
+   ============================================================ */
+const CHECK=[
+  {h:'Inventário de riscos psicossociais', s:'Fatores identificados e classificados por zona', st:'OK'},
+  {h:'Integração ao PGR / GRO', s:'Riscos psicossociais no Programa de Gerenciamento de Riscos', st:'OK'},
+  {h:'Avaliação contínua', s:'Radar de clima atualizado hora a hora + instrumentos sob demanda', st:'OK'},
+  {h:'Medidas de controle e planos de ação', s:'3 planos ativos com responsável e prazo', st:'OK'},
+  {h:'Registro e rastreabilidade', s:'Histórico e PDF assinado por período', st:'OK'},
+  {h:'Capacitação de lideranças', s:'Trilha agendada para 2 áreas', st:'Em curso'},
+];
+const LGPD=[
+  {h:'Base legal & consentimento revogável', s:'TCLE assinado, opt-in, pausável sem justificar', st:'OK'},
+  {h:'Inferência on-device', s:'Vídeo nunca sai do navegador; só o sinal numérico agregado', st:'OK'},
+  {h:'Anonimização com N≥5', s:'Sem exibição individual; impede reidentificação', st:'OK'},
+  {h:'RIPD / DPIA registrado', s:'Relatório de impacto à proteção de dados vigente', st:'OK'},
+  {h:'Encarregado (DPO) & retenção', s:'Retenção mínima e log de anonimização', st:'OK'},
+  {h:'Uso não punitivo', s:'Proibido para desempenho ou decisão individual', st:'OK'},
+];
+function renderCheck(id, arr){
+  document.getElementById(id).innerHTML=arr.map(c=>{
+    const done=c.st==='OK';
+    return `<div class="row">
+      <span class="ok" style="${done?'':'background:var(--z-moderada-s);color:var(--z-moderada)'}">
+        ${done?'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>'
+              :'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M12 6v6l4 2"/><circle cx="12" cy="12" r="9"/></svg>'}
+      </span>
+      <div><div class="h">${c.h}</div><div class="s">${c.s}</div></div>
+      <span class="st" style="${done?'':'color:var(--z-moderada)'}">${c.st}</span>
+    </div>`;
+  }).join('');
+}
+
+/* ============================================================
+   INVENTÁRIO DE RISCOS PSICOSSOCIAIS  (matriz P×S — item 1.5.4.4.2)
+   ============================================================ */
+const INVENTORY=[
+  {f:'Assédio moral / organizacional', src:'Cobrança pública, metas hostis', p:3, s:5, med:'Canal de denúncias + treino de liderança'},
+  {f:'Sobrecarga de trabalho', src:'Volume acima da capacidade da equipe', p:4, s:4, med:'Revisão de dimensionamento — Comercial'},
+  {f:'Jornada exaustiva', src:'Horas extras recorrentes, 2º turno', p:4, s:3, med:'Piloto de escala alternada — Atendimento'},
+  {f:'Baixa autonomia / controle', src:'Pouca margem de decisão', p:3, s:3, med:'Redesenho de processo + 1:1'},
+  {f:'Liderança inadequada', src:'Feedback punitivo, falta de suporte', p:2, s:4, med:'Trilha de capacitação de gestores'},
+  {f:'Conflitos e relações', src:'Tensões interpessoais no time', p:2, s:3, med:'Mediação + roda de conversa'},
+  {f:'Insegurança no emprego', src:'Reestruturações e incerteza', p:2, s:4, med:'Comunicação transparente de mudanças'},
+];
+// nível de risco a partir de P×S (1..25) → zona
+function levelZone(n){
+  if(n>=17) return ZONES.find(z=>z.k==='alto');
+  if(n>=12) return ZONES.find(z=>z.k==='atencao');
+  if(n>=8)  return ZONES.find(z=>z.k==='moderada');
+  if(n>=4)  return ZONES.find(z=>z.k==='segura');
+  return ZONES.find(z=>z.k==='otima');
+}
+function renderInventory(){
+  const head=`<tr><th>Fator de risco psicossocial</th><th style="text-align:center">Prob.</th><th style="text-align:center">Sever.</th><th style="text-align:center">Nível (P×S)</th><th>Classificação</th><th>Medida de controle · PGR</th></tr>`;
+  const rows=INVENTORY.map(r=>{
+    const n=r.p*r.s, z=levelZone(n);
+    return `<tr>
+      <td class="factor">${r.f}<small>${r.src}</small></td>
+      <td class="mx">${r.p}</td><td class="mx">${r.s}</td>
+      <td class="mx" style="color:${z.c}">${n}</td>
+      <td><span class="zbadge" style="background:${z.s};color:${z.c}"><span style="width:7px;height:7px;border-radius:50%;background:${z.c};display:inline-block"></span>${z.name.replace('Zona ','')}</span></td>
+      <td class="note" style="color:var(--ink-2)">${r.med}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('inv').innerHTML=head+rows;
+}
+
+/* dias desde o início da fiscalização punitiva (26/05/2026) */
+function updateDaysCounter(){
+  const start=new Date(2026,4,26); // maio = mês 4
+  const now=new Date();
+  const days=Math.max(0, Math.floor((now-start)/86400000));
+  const el=document.getElementById('daysCounter');
+  if(el) el.textContent=days.toLocaleString('pt-BR');
+}
+
+/* ============================================================
+   CAMERA LIVE DEMO (getUserMedia) — processed locally only
+   ============================================================ */
+let camStream=null, sigTimer=null;
+const SIGNALS=[
+  {t:'Valência', target:72},
+  {t:'Energia', target:64},
+  {t:'Estabilidade', target:81},
+];
+function renderSig(vals){
+  document.getElementById('sigRow').innerHTML=SIGNALS.map((s,i)=>`
+    <div class="sig"><div class="t">${s.t}</div>
+      <div class="bar"><i id="sig${i}" style="width:${vals?vals[i]:0}%"></i></div>
+      <div class="v mono" id="sigv${i}">${vals?vals[i]+'%':'—'}</div>
+    </div>`).join('');
+}
+async function toggleCam(){
+  const btn=document.getElementById('camBtn');
+  if(camStream){ stopCam(); return; }
+  try{
+    camStream = await navigator.mediaDevices.getUserMedia({video:{width:640,height:400,facingMode:'user'}, audio:false});
+    const stage=document.getElementById('camStage');
+    document.getElementById('camPh').style.display='none';
+    let v=document.getElementById('camVideo');
+    if(!v){ v=document.createElement('video'); v.id='camVideo'; v.autoplay=true; v.muted=true; v.playsInline=true; stage.prepend(v); }
+    v.srcObject=camStream;
+    document.getElementById('camOverlay').classList.add('on');
+    btn.textContent='Encerrar câmera';
+    // animate "inference" — purely cosmetic, values wander toward targets
+    let step=0;
+    sigTimer=setInterval(()=>{
+      step++;
+      const vals=SIGNALS.map(s=>{
+        const jitter=Math.round((Math.sin(step/3 + s.target)+Math.random()*0.6-0.3)*6);
+        return Math.max(20, Math.min(96, s.target - 14 + Math.min(step*3,14) + jitter));
+      });
+      SIGNALS.forEach((s,i)=>{
+        const bar=document.getElementById('sig'+i), val=document.getElementById('sigv'+i);
+        if(bar){bar.style.width=vals[i]+'%';} if(val){val.textContent=vals[i]+'%';}
+      });
+    },900);
+    toast('Câmera ativa — inferência 100% local, nada é gravado');
+  }catch(e){
+    toast('Permissão de câmera negada — a demo precisa do seu OK (e só do seu navegador).');
+  }
+}
+function stopCam(){
+  if(camStream){ camStream.getTracks().forEach(t=>t.stop()); camStream=null; }
+  clearInterval(sigTimer);
+  const v=document.getElementById('camVideo'); if(v) v.srcObject=null;
+  document.getElementById('camOverlay').classList.remove('on');
+  document.getElementById('camPh').style.display='';
+  document.getElementById('camBtn').textContent='Ativar câmera (demo local)';
+  renderSig(null);
+}
+
+/* ============================================================
+   DENÚNCIAS REAIS (backend EGO Pulse) — sobrescreve o demo
+   ============================================================ */
+async function loadRealComplaints(){
+  if(!AUTH || !AUTH.token) return;
+  try{
+    const r = await fetch(PULSE_API + '/pulse/complaints', { headers:{ Authorization:'Bearer ' + AUTH.token } });
+    if(!r.ok) return; // mantém o demo se falhar
+    const d = await r.json();
+    const list = d.complaints || [];
+    const s = d.stats || {};
+    const kpis = [
+      { t:'Total de denúncias', v:String(s.total ?? list.length), s:(s.abertas ?? 0)+' aberta(s) · '+(s.resolvidas ?? 0)+' resolvida(s)' },
+      { t:'Casos críticos', v:String(s.criticas ?? 0), s:'requer atenção imediata', col:'--z-alto' },
+      { t:'Sentimento negativo', v:String(s.negativas ?? 0), s:'classificados pela IA', col:'--z-atencao' },
+      { t:'Sentimento médio', v:(s.sentimento_medio!=null?Math.round(s.sentimento_medio*100)+'%':'—'), s:'índice de positividade' },
+    ];
+    document.getElementById('denKpis').innerHTML = kpis.map(k=>`
+      <div class="kpi"><div class="k-top"><span class="t">${k.t}</span></div>
+        <div class="k-v mono" ${k.col?`style="color:${cssv(k.col)}"`:''}>${k.v}</div>
+        <div class="k-s">${k.s}</div></div>`).join('');
+    const stMap = { aberta:'Aberta', em_analise:'Em análise', resolvida:'Resolvida', arquivada:'Arquivada' };
+    const colFor = c => (c.criticality==='critica'||c.criticality==='alta') ? '--z-alto'
+      : (c.sentiment_label==='negativo'||c.sentiment_label==='critico'||c.criticality==='media') ? '--z-atencao' : '--z-moderada';
+    const cap = x => x ? x.charAt(0).toUpperCase()+x.slice(1) : '—';
+    const esc = x => String(x||'').replace(/[<>&]/g, m=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[m]));
+    if(!list.length){
+      document.getElementById('dlist').innerHTML = '<div class="note" style="padding:16px 4px">Nenhuma denúncia registrada ainda.</div>';
+      return;
+    }
+    document.getElementById('dlist').innerHTML = list.map(c=>{
+      const col = colFor(c);
+      return `<div class="drow">
+        <div class="senti" style="background:${cssv(col)}22;color:${cssv(col)}">${cap(c.sentiment_label||c.criticality)}</div>
+        <div><div style="font-weight:700;font-size:13.5px">${esc(c.type)}</div><div class="note" style="margin-top:2px">${esc((c.description||'').slice(0,180))}</div></div>
+        <div class="note" style="font-weight:600">${stMap[c.status]||c.status}</div>
+      </div>`;
+    }).join('');
+  }catch(e){ /* mantém o demo */ }
+}
+
+/* ============================================================
+   INIT
+   ============================================================ */
+function init(){
+  drawGauge(73);
+  renderKpis();
+  renderHeat();
+  renderBurn();
+  renderAlerts();
+  renderInstr();
+  renderDen();
+  renderPlanos();
+  renderCheck('check', CHECK);
+  renderCheck('lgpd', LGPD);
+  renderInventory();
+  updateDaysCounter();
+  renderSig(null);
+  loadRealComplaints(); // sobrescreve o demo de denúncias com dados reais do backend
+}
+document.addEventListener('DOMContentLoaded', init);
+
+</script>
+</body>
+</html>
