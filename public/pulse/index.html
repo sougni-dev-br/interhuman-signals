@@ -268,6 +268,25 @@ h1,h2,h3,h4{margin:0; letter-spacing:-.02em; font-family:var(--serif)}
   .hero{grid-template-columns:1fr} .kpis{grid-template-columns:repeat(2,1fr)}
   .two,.three{grid-template-columns:1fr} .hero h1{font-size:32px}
 }
+/* mobile: elimina overflow horizontal (cards de alerta, KPIs de denúncia, paddings) */
+@media(max-width:640px){
+  .shell{padding-left:16px; padding-right:16px; overflow-x:clip}
+  /* topbar: marca + nav não cabem lado a lado → deixa quebrar e enxuga o nav */
+  .topbar-in{padding-left:16px; padding-right:16px; gap:8px; flex-wrap:wrap; row-gap:8px}
+  .brand .sub{display:none}
+  .top-nav{margin-left:auto; min-width:0}
+  .top-nav .chip{display:none}
+  .top-nav a,.top-nav button{padding:6px 9px; font-size:12.5px}
+  .kpis{grid-template-columns:repeat(2,1fr)}
+  #denKpis{grid-template-columns:repeat(2,1fr) !important}
+  .why{grid-template-columns:1fr}
+  /* alerta/denúncia: 2 colunas + ação quebra pra linha de baixo (some o nowrap que estourava) */
+  .alert-c,.drow{grid-template-columns:auto 1fr}
+  .alert-c .go{grid-column:1 / -1; justify-self:start; margin-top:6px}
+  .hero h1{font-size:27px}
+  .section-head h2{font-size:20px}
+}
+@media(max-width:400px){ .kpis,#denKpis{grid-template-columns:1fr} }
 svg{display:block}
 .brand .mark{background:#0A0A0A !important;border-color:#0A0A0A !important;overflow:hidden}.brand .mark img,.markbig img{display:block}.markbig{background:#0A0A0A !important;color:#fff !important;overflow:hidden}
 </style>
