@@ -8,4 +8,27 @@
     Header set Pragma "no-cache"
     Header set Expires "0"
   </FilesMatch>
+
+  # ---------------------------------------------------------------------------
+  # Content-Security-Policy — allowlist FECHADA de destinos de rede.
+  #
+  # connect-src lista TODOS (e somente) os destinos que as paginas realmente
+  # chamam por fetch/XHR/WebSocket:
+  #   'self'                                   -> assets do proprio dominio
+  #   https://ego-backend-lerb.onrender.com    -> /auth, /v2/report, /pulse/*
+  #   wss://ego-backend-lerb.onrender.com      -> stream de sinais (WebSocket)
+  #   https://cdn.jsdelivr.net                 -> MediaPipe tasks-vision (wasm)
+  #   https://storage.googleapis.com           -> modelo face_landmarker.task
+  #
+  # Efeito PRIVACIDADE/LGPD: a telemetria do MediaPipe (odml.pa.googleapis.com)
+  # NAO esta na lista -> fica bloqueada. E um host diferente de storage.google
+  # apis.com, entao liberar o modelo nao libera a telemetria.
+  #
+  # 'wasm-unsafe-eval' e exigido p/ compilar WebAssembly (MediaPipe); blob: e
+  # worker-src cobrem o worker que ele cria. 'unsafe-inline' em script-src e
+  # necessario pelos <script> inline (auth gate do v2, painel do pulse).
+  # NAO restringimos navegacao (form-action/navigate-to): os links de
+  # compartilhar (wa.me, t.me, twitter.com) e o link interhuman.ai precisam abrir.
+  # ---------------------------------------------------------------------------
+  Header always set Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob: https://cdn.jsdelivr.net; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' https://ego-backend-lerb.onrender.com wss://ego-backend-lerb.onrender.com https://cdn.jsdelivr.net https://storage.googleapis.com"
 </IfModule>
