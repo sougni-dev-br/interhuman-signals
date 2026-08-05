@@ -82,6 +82,8 @@ function aspect(frame, which) {
  */
 export function aggregateAU(frames, opts = {}) {
   const occThr = opts.occThreshold ?? 0.5;
+  const sourceFps = opts.sourceFps ?? 30;       // PyAFAR ~30fps; MediaPipe blendshape ~4fps
+  const trustBlink = opts.trustBlink !== false; // piscar/fadiga nao e confiavel em baixa fps
   if (!Array.isArray(frames) || !frames.length) return null;
 
   const N = frames.length;
@@ -162,7 +164,7 @@ export function aggregateAU(frames, opts = {}) {
     const thr = (mean(ear)) * 0.6;
     for (let i = 1; i < ear.length - 1; i++) if (ear[i] < thr && ear[i] <= ear[i - 1] && ear[i] < ear[i + 1]) blinks++;
   }
-  const blink_proxy = ear.length ? round(blinks / (ear.length / 30), 2) : null; // ~por 30 frames
+  const blink_proxy = ear.length ? round(blinks / (ear.length / sourceFps), 2) : null; // normaliza pela fps da fonte
 
   const face_detection_rate = round(allRates.length ? 1 : 0, 2); // frames já vêm só com face detectada
 
@@ -171,7 +173,7 @@ export function aggregateAU(frames, opts = {}) {
   if (tension != null && tension >= 45) flags.push({ signal: 'tensao_facial_sustentada', intensity: round(tension / 100, 2), evidence: 'AU4/AU7/AU23/AU24 recorrentes' });
   if (negative != null && positive != null && negative - positive >= 20) flags.push({ signal: 'afeto_negativo_predominante', intensity: round((negative - positive) / 100, 2), evidence: `neg ${negative} vs pos ${positive}` });
   if (affect_flatness != null && affect_flatness >= 70) flags.push({ signal: 'embotamento_afetivo', intensity: round(affect_flatness / 100, 2), evidence: 'pouquíssima atividade facial (possível retraimento/exaustão)' });
-  if (eye_openness_mean != null && blink_proxy != null && blink_proxy >= 8) flags.push({ signal: 'sinais_de_fadiga', intensity: round(clamp(blink_proxy / 20, 0, 1), 2), evidence: `piscar elevado (${blink_proxy}/30f)` });
+  if (trustBlink && eye_openness_mean != null && blink_proxy != null && blink_proxy >= 8) flags.push({ signal: 'sinais_de_fadiga', intensity: round(clamp(blink_proxy / 20, 0, 1), 2), evidence: `piscar elevado (${blink_proxy}/${sourceFps}f)` });
   if (head_restlessness >= 12) flags.push({ signal: 'agitacao_motora', intensity: round(clamp(head_restlessness / 30, 0, 1), 2), evidence: 'alta variação de pose da cabeça' });
 
   const dominant = [
@@ -180,7 +182,7 @@ export function aggregateAU(frames, opts = {}) {
   ].filter(([, v]) => v != null).sort((a, b) => b[1] - a[1])[0];
 
   return {
-    schema: 'pyafar/adult',
+    schema: opts.source || 'pyafar/adult',
     frames_analyzed: N,
     face_detection_rate,
     // sinais psicossociais 0..100

@@ -157,7 +157,8 @@ app.use(
       directives: {
         defaultSrc: ["'self'"],
         baseUri: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "'wasm-unsafe-eval'", 'blob:', 'https://cdn.jsdelivr.net'],
+        workerSrc: ["'self'", 'blob:'], // MediaPipe pode criar worker via blob
         styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
         fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
         imgSrc: ["'self'", 'data:', 'blob:'],
@@ -168,6 +169,8 @@ app.use(
           BACKEND_WSS,
           'ws://localhost:*',
           'http://localhost:*',
+          'https://cdn.jsdelivr.net', // MediaPipe Face Landmarker (bundle + wasm)
+          'https://storage.googleapis.com', // modelo face_landmarker.task
         ],
         objectSrc: ["'none'"],
         frameAncestors: ["'self'"],
@@ -178,7 +181,7 @@ app.use(
   }),
 );
 
-app.use(express.json({ limit: '512kb' }));
+app.use(express.json({ limit: '1mb' })); // folga p/ au_frames (capado a 1200 no schema)
 
 // v1 legada removida: a raiz e o antigo /index.html mandam pro login (que
 // encaminha pro /v2/). Cobre bookmarks antigos sem dar 404.
@@ -463,6 +466,8 @@ const reportPayloadSchema = z
     top_signals: z.array(z.any()).max(100).optional(),
     per_question: z.array(perQuestionSchema).max(50).optional(),
     raw_signal_count: z.number().optional(),
+    au_frames: z.array(z.any()).max(1200).optional(), // frames de AU (MediaPipe/PyAFAR) — cap anti-abuso
+    au_source: z.enum(['mediapipe', 'pyafar']).optional(),
   })
   .passthrough();
 
@@ -614,9 +619,12 @@ app.post('/v2/report', reportLimiter, requireToken, async (req, res) => {
     });
   }
 
-  // PyAFAR (opcional): agrega Action Units faciais em sinais psicossociais (afeto/tensão/embotamento).
+  // Action Units faciais (opcional): MediaPipe (browser, on-device) OU PyAFAR (sidecar) -> sinais psicossociais.
   if (Array.isArray(payload.au_frames) && payload.au_frames.length) {
-    try { payload.affect_au = aggregateAU(payload.au_frames); }
+    const auOpts = payload.au_source === 'pyafar'
+      ? { source: 'pyafar/adult', sourceFps: 30, trustBlink: true }
+      : { source: 'mediapipe/blendshape', sourceFps: 4, trustBlink: false };
+    try { payload.affect_au = aggregateAU(payload.au_frames, auOpts); }
     catch (e) { logEvent('af.aggregate.error', { message: e.message }); }
   }
 

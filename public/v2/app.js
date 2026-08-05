@@ -1,6 +1,10 @@
 // ego signals — realtime client
 // Browser -> ws://.../ws -> (proxy injects key) -> wss://api.interhuman.ai/v1/stream/analyze
 
+// Camada de Action Units faciais ON-DEVICE (MediaPipe Face Landmarker -> AU FACS -> af.js no backend).
+// Carregada por import() DINÂMICO (best-effort): se o módulo ou o CDN falhar, o /v2/ segue funcionando.
+let faceMod = null;
+
 const SIGNAL_TYPES = [
   { key: 'engagement', label: 'Engagement' },
   { key: 'interest', label: 'Interest' },
@@ -488,6 +492,11 @@ async function startSession() {
     const vt = state.mediaStream.getVideoTracks()[0];
     const settings = vt.getSettings();
     videoMeta.textContent = `${settings.width}×${settings.height} @ ${Math.round(settings.frameRate || 0)}fps`;
+    // Action Units faciais on-device (MediaPipe) — import() dinâmico best-effort: nunca derruba a sessão.
+    import('./ego-face.mjs')
+      .then((m) => { faceMod = m; return m.initFace(); })
+      .then(() => faceMod && faceMod.startFace(preview))
+      .catch((e) => pushRaw('error', 'face.init', { message: e.message }));
   } catch (e) {
     setConn('falha câmera', 'badge-error');
     pushRaw('error', 'getUserMedia', { message: e.message });
@@ -573,6 +582,7 @@ function stopAllMedia() {
     state.mediaStream = null;
   }
   preview.srcObject = null;
+  try { faceMod && faceMod.closeFace(); } catch {} // encerra o MediaPipe e libera a câmera
 }
 
 // ============= Codec probing =============
@@ -755,7 +765,17 @@ function buildReportPayload() {
     voice_activity_pct: Math.round(sessionVoiceActivity() * 100),
     raw_signal_count: state.history.length,
     raw_events: buildRawEvents(), // EGO Pulse #1 — série granular p/ o servidor persistir
+    au_source: 'mediapipe',
+    au_frames: downsampleFrames(faceMod ? faceMod.getAuFrames() : [], 600), // Action Units faciais on-device (af.js agrega)
   };
+}
+
+// Subamostra uniforme os frames de AU (preserva início/fim), cap rígido p/ caber no payload.
+function downsampleFrames(arr, max) {
+  if (!arr || arr.length <= max) return arr || [];
+  const step = arr.length / max, out = [];
+  for (let i = 0; i < max; i++) out.push(arr[Math.floor(i * step)]);
+  return out;
 }
 
 // Empacota a série temporal granular da sessão (sinais + CQI + engagement),
