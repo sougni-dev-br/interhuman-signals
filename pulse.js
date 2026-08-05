@@ -362,8 +362,22 @@ export function mountPulse(app, deps) {
     setCors(req, res);
     try {
       const dbUser = await getUserByEmail(req.user.email);
-      const mine = await listReports({ userId: dbUser ? Number(dbUser.id) : null, kind: req.query.kind, limit: 20 });
-      res.json({ ok: true, reports: mine });
+      // Guest / usuário sem cadastro NÃO tem relatórios individuais próprios — nunca expõe os de terceiros.
+      if (!dbUser) return res.json({ ok: true, reports: [] });
+      const uid = Number(dbUser.id);
+      const kind = req.query.kind;
+      // Próprios relatórios (perfilamento diário) + relatórios horários ANÔNIMOS do org (agregados k-anon).
+      const tasks = [listReports({ userId: uid, kind, limit: 20 })];
+      if (!kind || kind === 'sinais_horario') {
+        tasks.push(listReports({ anonymous: true, kind: 'sinais_horario', limit: 20 }));
+      }
+      const [mine, hourly = []] = await Promise.all(tasks);
+      const seen = new Set();
+      const reports = [...mine, ...hourly]
+        .filter((r) => (seen.has(r.id) ? false : seen.add(r.id)))
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+        .slice(0, 20);
+      res.json({ ok: true, reports });
     } catch (e) {
       logEvent('pulse.reports.error', { message: e.message });
       res.status(500).json({ error: 'db_error' });

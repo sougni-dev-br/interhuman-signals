@@ -222,9 +222,18 @@ export async function saveReport(rep) {
   if (error) throw error;
   return data;
 }
-export async function listReports({ userId, kind, limit = 30 } = {}) {
+export async function listReports({ userId, kind, anonymous = false, limit = 30 } = {}) {
   let q = supa.from('reports').select('id, kind, department, markdown, data, source, created_at, period_start, period_end').order('created_at', { ascending: false }).limit(limit);
-  if (userId) q = q.eq('user_id', Number(userId));
+  if (anonymous) {
+    // Relatórios sem dono (agregados anônimos do org, ex.: sinais_horario k-anon).
+    q = q.is('user_id', null);
+  } else if (userId != null) {
+    q = q.eq('user_id', Number(userId));
+  } else {
+    // Sem userId e sem flag anonymous: NÃO retorna nada. Evita vazar relatórios de TODOS
+    // os usuários quando o chamador não tem cadastro (ex.: token guest).
+    return [];
+  }
   if (kind) q = q.eq('kind', kind);
   const { data, error } = await q;
   if (error) throw error;
