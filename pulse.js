@@ -83,6 +83,7 @@ export async function persistSessionAndReport(user, payload, reportBody = {}) {
       source: reportBody.source || null,
       model: reportBody.model || null,
       session_ids: sessionId ? [sessionId] : null,
+      data: payload.affect_au ? { affect_au: payload.affect_au } : null,
     });
   }
   return sessionId;

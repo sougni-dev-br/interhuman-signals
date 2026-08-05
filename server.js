@@ -30,6 +30,7 @@ import {
   VALID_ROLES,
 } from './db.js';
 import { mountPulse, persistSessionAndReport } from './pulse.js';
+import { aggregateAU, auPromptBlock } from './af.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -612,10 +613,17 @@ app.post('/v2/report', reportLimiter, requireToken, async (req, res) => {
     });
   }
 
+  // PyAFAR (opcional): agrega Action Units faciais em sinais psicossociais (afeto/tensão/embotamento).
+  if (Array.isArray(payload.au_frames) && payload.au_frames.length) {
+    try { payload.affect_au = aggregateAU(payload.au_frames); }
+    catch (e) { logEvent('af.aggregate.error', { message: e.message }); }
+  }
+
   if (!anthropic) return respond({ markdown: ruleBasedReport(payload), source: 'fallback-no-ai' });
 
   // Enriquecer payload da sessão com derived metrics ANTES de passar pro Claude
   const enriched = enrichSessionPayload(payload);
+  delete enriched.au_frames; // não envia frames crus (468 landmarks/frame) ao Claude — só o agregado affect_au
 
   try {
     const md = await callClaudeV2(enriched);
@@ -741,7 +749,7 @@ Produz o perfilamento agora, seguindo a estrutura exata.`;
     model: ANTHROPIC_MODEL,
     max_tokens: 2400,
     temperature: 0.7,
-    system,
+    system: system + auPromptBlock(payload.affect_au),
     messages: [{ role: 'user', content: user }],
   });
   return (resp.content.find((c) => c.type === 'text')?.text || '').trim();
