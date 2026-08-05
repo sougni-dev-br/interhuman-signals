@@ -594,6 +594,7 @@ app.post('/v2/report', reportLimiter, requireToken, async (req, res) => {
         logEvent('pulse.persist.error', { message: e.message }),
       );
     }
+    if (payload.affect_au) body.affect_au = payload.affect_au; // ecoa os sinais faciais FACS agregados
     return res.json(body);
   };
 

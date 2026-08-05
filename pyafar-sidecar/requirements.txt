@@ -1,0 +1,8 @@
+# PyAFAR sidecar — dependências
+# NB: 'pyafar' é de uso NÃO-COMERCIAL (licença comercial: Jeffrey Cohn). Ver README.
+pyafar
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pandas>=1.5
+requests>=2.31
+python-multipart>=0.0.9
