@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>EGO — calibração de Action Units</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap" />
+  <style>
+    :root{ --bg:#FAF9F7; --card:#fff; --ink:#1E1E1C; --muted:#6B6B66; --line:#E8E5DF;
+           --ok:#1E7F4F; --warn:#B8860B; --bad:#C0392B; --accent:#1E1E1C; }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--ink);font-family:'Space Grotesk',system-ui,sans-serif;
+         padding:24px 16px 64px}
+    .wrap{max-width:940px;margin:0 auto}
+    h1{font-size:26px;margin:0 0 6px}
+    .sub{color:var(--muted);font-size:14px;margin:0 0 22px;line-height:1.5}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:16px}
+    .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+    button{font-family:inherit;font-size:15px;font-weight:500;padding:11px 20px;border-radius:10px;
+           border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer}
+    button.ghost{background:transparent;color:var(--ink)}
+    button:disabled{opacity:.45;cursor:default}
+    video{width:280px;max-width:100%;border-radius:12px;background:#111;transform:scaleX(-1)}
+    table{width:100%;border-collapse:collapse;font-size:13px;margin-top:10px}
+    th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+    th{color:var(--muted);font-weight:500}
+    .scroll{overflow-x:auto}
+    .big{font-size:30px;font-weight:700;line-height:1.1}
+    .lbl{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px}
+    .ok{color:var(--ok)} .warn{color:var(--warn)} .bad{color:var(--bad)}
+    .verdict{font-size:15px;line-height:1.6;margin:0}
+    #bar{height:6px;background:var(--line);border-radius:3px;overflow:hidden;margin-top:12px}
+    #barfill{height:100%;width:0;background:var(--accent);transition:width .25s}
+    pre{background:#F4F2EE;border:1px solid var(--line);border-radius:10px;padding:12px;overflow:auto;
+        font-size:11px;max-height:240px}
+    @media(max-width:640px){ .big{font-size:24px} h1{font-size:21px} }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Calibração de Action Units</h1>
+  <p class="sub">
+    Ferramenta interna. Grava <strong>60 s</strong> do seu rosto no navegador para medir a faixa real dos
+    blendshapes e verificar se os limiares do <code>af.js</code> — hoje derivados de perfis
+    <em>sintéticos</em> — batem com um rosto de verdade.
+    <strong>Nada sai do dispositivo:</strong> nenhum vídeo ou imagem é enviado; só números ficam nesta página.
+  </p>
+
+  <div class="card">
+    <div class="row">
+      <video id="cam" playsinline muted></video>
+      <div style="flex:1;min-width:220px">
+        <div class="row">
+          <button id="btnNeutro">1 · Gravar NEUTRO (60 s)</button>
+          <button id="btnExpr" class="ghost">2 · Gravar EXPRESSIVO (60 s)</button>
+        </div>
+        <p class="sub" id="hint" style="margin:12px 0 0">
+          <strong>Neutro:</strong> fique parado, relaxado, sem falar — como numa reunião ouvindo.<br />
+          <strong>Expressivo:</strong> fale, sorria, franza a testa — varie a expressão.
+        </p>
+        <div id="bar"><div id="barfill"></div></div>
+        <p class="sub" id="status" style="margin:8px 0 0">aguardando…</p>
+      </div>
+    </div>
+  </div>
+
+  <div id="out"></div>
+</div>
+
+<script type="module">
+import { blendshapesToAU } from './af-map.js';
+
+// Limiares atuais do af.js que queremos validar contra rosto real.
+const THR = { flatExprMax: 15, flatVarMax: 2.5, occThreshold: 0.5 };
+const DUR_S = 60, FPS = 4;
+
+const $ = (id) => document.getElementById(id);
+const cam = $('cam'), out = $('out'), statusEl = $('status'), barfill = $('barfill');
+const results = {};
+let lm = null, FaceLandmarker, FilesetResolver;
+
+async function ensureCam() {
+  if (cam.srcObject) return;
+  cam.srcObject = await navigator.mediaDevices.getUserMedia({ video: { facingMode:'user', width:640, height:480 }, audio:false });
+  await cam.play();
+  if (cam.readyState < 2) await new Promise(r => (cam.onloadeddata = r));
+}
+async function ensureModel() {
+  if (lm) return;
+  statusEl.textContent = 'carregando modelo MediaPipe…';
+  ({ FaceLandmarker, FilesetResolver } = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/vision_bundle.mjs'));
+  const fs = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm');
+  const opts = { baseOptions:{ modelAssetPath:'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task', delegate:'GPU' },
+                 runningMode:'VIDEO', numFaces:1, outputFaceBlendshapes:true, outputFacialTransformationMatrixes:true };
+  try { lm = await FaceLandmarker.createFromOptions(fs, opts); }
+  catch { opts.baseOptions.delegate='CPU'; lm = await FaceLandmarker.createFromOptions(fs, opts); }
+}
+
+// Métricas espelhadas do af.js (expressividade = média do PICO de AU por frame;
+// variabilidade = desvio-padrão da valência por frame × 100). Os frames crus são
+// exportados p/ conferência autoritativa com o af.js real.
+const VAL = {1:-0.3,2:0.0,4:-0.6,6:0.8,7:-0.4,10:-0.6,12:0.7,14:-0.3,15:-0.6,17:-0.3,23:-0.4,24:-0.4};
+const AUS = [1,2,4,6,7,10,12,14,15,17,23,24];
+const mean = a => a.length ? a.reduce((s,x)=>s+x,0)/a.length : 0;
+const std = a => { if (a.length<2) return 0; const m=mean(a); return Math.sqrt(mean(a.map(x=>(x-m)**2))); };
+const pct = (a,p) => { if(!a.length) return null; const s=[...a].sort((x,y)=>x-y); return s[Math.min(s.length-1, Math.floor(p*s.length))]; };
+
+function analyse(frames) {
+  const perFrameMax = frames.map(f => { let m=0; for (const n of AUS){ const v=f['Occ_au_'+n]; if (v!=null && v>m) m=v; } return m; });
+  const valence = frames.map(f => { let s=0,w=0; for (const n of AUS){ const p=f['Occ_au_'+n]; if(p==null)continue; s+=VAL[n]*p; w+=Math.abs(VAL[n])*p; } return w? s/w : 0; });
+  const expressivity = +(mean(perFrameMax)*100).toFixed(1);
+  const variability = +(std(valence)*100).toFixed(1);
+  const perAU = AUS.map(n => {
+    const xs = frames.map(f=>f['Occ_au_'+n]).filter(v=>v!=null);
+    return { au:n, mediana:pct(xs,.5), p90:pct(xs,.9), max:Math.max(...xs,0),
+             occRate:+(xs.filter(v=>v>=THR.occThreshold).length/(xs.length||1)).toFixed(3) };
+  });
+  return { frames_analyzed: frames.length, expressivity, variability,
+           affect_flatness:+(100-expressivity).toFixed(1), perAU };
+}
+
+async function record(kind, label) {
+  await ensureCam(); await ensureModel();
+  const frames = []; const t0 = performance.now(); let lastTs=-1, lastVt=-1;
+  statusEl.textContent = `gravando ${label}…`;
+  await new Promise((done) => {
+    const tick = () => {
+      const el = performance.now() - t0;
+      barfill.style.width = Math.min(100, (el/(DUR_S*1000))*100) + '%';
+      if (el >= DUR_S*1000) return done();
+      try {
+        if (cam.videoWidth && cam.currentTime !== lastVt) {
+          lastVt = cam.currentTime;
+          let ts = Math.round(performance.now()); if (ts<=lastTs) ts=lastTs+1; lastTs=ts;
+          const res = lm.detectForVideo(cam, ts);
+          const cats = res.faceBlendshapes?.[0]?.categories;
+          if (cats?.length) { const b={}; for(const c of cats) b[c.categoryName]=c.score; frames.push(blendshapesToAU(b)); }
+        }
+      } catch {}
+      setTimeout(tick, 1000/FPS);
+    };
+    tick();
+  });
+  barfill.style.width='0'; statusEl.textContent = `${label}: ${frames.length} frames capturados.`;
+  results[kind] = { label, raw: frames, stats: analyse(frames) };
+  render();
+}
+
+function verdict() {
+  const n = results.neutro?.stats, e = results.expressivo?.stats;
+  if (!n) return '';
+  const dispara = n.expressivity <= THR.flatExprMax && n.variability <= THR.flatVarMax;
+  const margemE = (n.expressivity - THR.flatExprMax).toFixed(1);
+  const margemV = (n.variability - THR.flatVarMax).toFixed(1);
+  let html = `<div class="card"><div class="lbl">Veredito sobre os limiares atuais</div><p class="verdict">`;
+  if (dispara) {
+    html += `<span class="bad">⚠ FALSO POSITIVO.</span> Seu rosto <strong>neutro</strong> dispararia a flag
+      <code>embotamento_afetivo</code> (expressividade ${n.expressivity} ≤ ${THR.flatExprMax}
+      <em>e</em> variabilidade ${n.variability} ≤ ${THR.flatVarMax}). Os limiares precisam BAIXAR.`;
+  } else {
+    html += `<span class="ok">✓ Rosto neutro NÃO dispara a flag.</span>
+      Expressividade ${n.expressivity} (limiar ${THR.flatExprMax}, margem ${margemE > 0 ? '+' : ''}${margemE})
+      · variabilidade ${n.variability} (limiar ${THR.flatVarMax}, margem ${margemV > 0 ? '+' : ''}${margemV}).`;
+    if (Number(margemV) < 1.5 || Number(margemE) < 4) html += ` <span class="warn">Margem apertada — vale afrouxar um pouco os limiares.</span>`;
+  }
+  if (e) html += `<br /><br />Expressivo: expressividade ${e.expressivity}, variabilidade ${e.variability}
+      — deve ficar <strong>bem acima</strong> do neutro. Diferença: ${(e.expressivity-n.expressivity).toFixed(1)} pts.`;
+  return html + `</p></div>`;
+}
+
+function render() {
+  let html = '';
+  for (const k of ['neutro','expressivo']) {
+    const r = results[k]; if (!r) continue;
+    const s = r.stats;
+    html += `<div class="card"><div class="lbl">${r.label}</div>
+      <div class="grid" style="margin:10px 0 4px">
+        <div><div class="big">${s.expressivity}</div><div class="lbl">expressividade</div></div>
+        <div><div class="big">${s.variability}</div><div class="lbl">variabilidade</div></div>
+        <div><div class="big">${s.affect_flatness}</div><div class="lbl">embotamento</div></div>
+        <div><div class="big">${s.frames_analyzed}</div><div class="lbl">frames</div></div>
+      </div>
+      <div class="scroll"><table><thead><tr><th>AU</th><th>mediana</th><th>p90</th><th>máx</th><th>occRate@0.5</th></tr></thead><tbody>
+      ${s.perAU.map(a=>`<tr><td>AU${a.au}</td><td>${a.mediana?.toFixed(3) ?? '—'}</td><td>${a.p90?.toFixed(3) ?? '—'}</td><td>${a.max.toFixed(3)}</td><td>${a.occRate}</td></tr>`).join('')}
+      </tbody></table></div></div>`;
+  }
+  html += verdict();
+  if (results.neutro) html += `<div class="card"><div class="row">
+      <button id="btnExport" class="ghost">Baixar JSON (frames crus + stats)</button></div>
+      <p class="sub" style="margin:10px 0 0">Envie este JSON para conferir os números com o <code>af.js</code> real.</p></div>`;
+  out.innerHTML = html;
+  const be = $('btnExport');
+  if (be) be.onclick = () => {
+    const blob = new Blob([JSON.stringify(results,null,1)], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = 'ego-calibracao.json'; a.click();
+  };
+}
+
+$('btnNeutro').onclick = async (ev) => { ev.target.disabled=true; try { await record('neutro','Rosto NEUTRO'); } finally { ev.target.disabled=false; } };
+$('btnExpr').onclick   = async (ev) => { ev.target.disabled=true; try { await record('expressivo','Rosto EXPRESSIVO'); } finally { ev.target.disabled=false; } };
+</script>
+</body>
+</html>
