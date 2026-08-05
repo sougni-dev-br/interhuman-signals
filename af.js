@@ -172,7 +172,30 @@ export function aggregateAU(frames, opts = {}) {
   const flags = [];
   if (tension != null && tension >= 45) flags.push({ signal: 'tensao_facial_sustentada', intensity: round(tension / 100, 2), evidence: 'AU4/AU7/AU23/AU24 recorrentes' });
   if (negative != null && positive != null && negative - positive >= 20) flags.push({ signal: 'afeto_negativo_predominante', intensity: round((negative - positive) / 100, 2), evidence: `neg ${negative} vs pos ${positive}` });
-  if (affect_flatness != null && affect_flatness >= 70) flags.push({ signal: 'embotamento_afetivo', intensity: round(affect_flatness / 100, 2), evidence: 'pouquíssima atividade facial (possível retraimento/exaustão)' });
+  // Embotamento afetivo — um rosto CALMO/PARADO é NORMAL, não é embotamento.
+  // O critério antigo (affect_flatness >= 70) disparava em QUALQUER rosto neutro:
+  // análise de sensibilidade mostrou neutro típico em ~82 de embotamento, ou seja,
+  // todo colaborador quieto seria sinalizado ao RH. Embotamento é ausência
+  // SUSTENTADA de reatividade — exige expressividade muito baixa E variabilidade
+  // emocional muito baixa, por uma janela mínima de observação.
+  // Separador medido: embotado ~expressividade 13 / variabilidade 1.1;
+  // neutro ~expressividade 18 / variabilidade 4.5.
+  // Conservador de propósito: neste sinal, falso positivo (acusar um colaborador
+  // saudável de exaustão) é muito pior que falso negativo.
+  const flatExprMax = opts.flatnessExprMax ?? 15;
+  const flatVarMax = opts.flatnessVarMax ?? 2.5;
+  const flatMinFrames = opts.flatnessMinFrames ?? 120;
+  if (
+    N >= flatMinFrames &&
+    expressivity != null && expressivity <= flatExprMax &&
+    emotional_variability != null && emotional_variability <= flatVarMax
+  ) {
+    flags.push({
+      signal: 'embotamento_afetivo',
+      intensity: round(clamp(affect_flatness / 100, 0, 1), 2),
+      evidence: `ausência sustentada de reatividade facial (expressividade ${expressivity}, variabilidade ${emotional_variability}, ${N} frames)`,
+    });
+  }
   if (trustBlink && eye_openness_mean != null && blink_proxy != null && blink_proxy >= 8) flags.push({ signal: 'sinais_de_fadiga', intensity: round(clamp(blink_proxy / 20, 0, 1), 2), evidence: `piscar elevado (${blink_proxy}/${sourceFps}f)` });
   if (head_restlessness >= 12) flags.push({ signal: 'agitacao_motora', intensity: round(clamp(head_restlessness / 30, 0, 1), 2), evidence: 'alta variação de pose da cabeça' });
 
