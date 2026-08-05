@@ -493,7 +493,7 @@ async function startSession() {
     const settings = vt.getSettings();
     videoMeta.textContent = `${settings.width}×${settings.height} @ ${Math.round(settings.frameRate || 0)}fps`;
     // Action Units faciais on-device (MediaPipe) — import() dinâmico best-effort: nunca derruba a sessão.
-    import('./ego-face.mjs')
+    import('./ego-face.js')
       .then((m) => { faceMod = m; return m.initFace(); })
       .then(() => faceMod && faceMod.startFace(preview))
       .catch((e) => pushRaw('error', 'face.init', { message: e.message }));

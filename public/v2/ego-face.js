@@ -11,7 +11,7 @@
 // v1: MediaPipe via CDN jsdelivr (pin @1.0.1). Hardening futuro: self-host vendor/+models/.
 
 import { FaceLandmarker, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/vision_bundle.mjs';
-import { blendshapesToAU, poseFromMatrix } from './af-map.mjs';
+import { blendshapesToAU, poseFromMatrix } from './af-map.js';
 
 const WASM_DIR  = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm';
 const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
