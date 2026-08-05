@@ -1,9 +1,9 @@
-// ego-face.mjs — camada de Action Units faciais ON-DEVICE para o EGO Pulse.
+// ego-face.js — camada de Action Units faciais ON-DEVICE para o EGO Pulse.
 //
 // MediaPipe Face Landmarker (Google, Apache-2.0 no codigo E nos pesos — verificado
 // nos 3 model cards: BlazeFace / FaceMesh V2 / Blendshape V2) roda 100% no NAVEGADOR
 // sobre o <video> que ja existe. Deriva os 52 blendshapes ARKit -> Action Units FACS
-// (mapeamento em af-map.mjs) no formato que o af.js (backend) consome.
+// (mapeamento em af-map.js) no formato que o af.js (backend) consome.
 //
 // PRIVACIDADE/LGPD: o frame da webcam NUNCA sai do dispositivo. So o agregado numerico
 // (blendshapes->AU + pose + EAR, sem imagem e sem os 478 landmarks crus) vai ao servidor.

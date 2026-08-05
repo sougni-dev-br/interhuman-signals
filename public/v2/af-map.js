@@ -1,5 +1,5 @@
-// af-map.mjs — mapeamento PURO blendshape ARKit/MediaPipe -> Action Units FACS (formato af.js).
-// Sem dependencia de rede/MediaPipe: importavel tanto pelo browser (ego-face.mjs) quanto por testes Node.
+// af-map.js — mapeamento PURO blendshape ARKit/MediaPipe -> Action Units FACS (formato af.js).
+// Sem dependencia de rede/MediaPipe: importavel tanto pelo browser (ego-face.js) quanto por testes Node.
 //
 // Tiers de confiabilidade (FACS, verificado): AU1/2/4/12/15 confiaveis; AU6/7/10/24 usaveis com
 // confusao; AU14 fraco (SNR baixo); AU17 (mouthShrug=lip-roll, nao mentalis) e AU23 (sem analogo
