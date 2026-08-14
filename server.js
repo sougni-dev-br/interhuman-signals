@@ -520,7 +520,7 @@ async function callClaude(payload) {
 
 Você recebe um JSON com:
 - 5 perguntas e quanto tempo a pessoa falou em cada uma (audio_activity: 0-1, % de tempo com voz detectada)
-- sinais sociais detectados pela Interhuman AI em cada pergunta (12 tipos possíveis: agreement, confidence, confusion, disagreement, disengagement, engagement, frustration, hesitation, interest, skepticism, stress, uncertainty)
+- sinais de comportamento detectados em cada pergunta (12 tipos: concordância, segurança, confusão, discordância, distanciamento, presença, frustração, hesitação, interesse, desconfiança, pressão, dúvida)
 - engagement state ao longo da sessão (% engaged/neutral/disengaged)
 - Conversation Quality Index 0-100 + 5 dimensões (clarity, authority, energy, rapport, learning)
 - top signals (sinais que mais apareceram)
@@ -706,18 +706,25 @@ function enrichSessionPayload(p) {
 }
 
 async function callClaudeV2(payload) {
-  const system = `Você é um analista comportamental que produz perfilamentos densos, surpreendentes e respeitosos a partir de uma LEITURA DE OBSERVAÇÃO de ~1-2 minutos. A pessoa apareceu na câmera e falou/agiu naturalmente — NENHUMA pergunta foi feita. Todos os sinais vêm SÓ do vídeo e do áudio (linguagem corporal, microexpressões, tom de voz, presença), detectados pela Interhuman AI em tempo real. Você NÃO tem perguntas nem respostas — apenas a leitura comportamental.
+  const system = `Você é um analista comportamental que escreve perfis densos, surpreendentes e respeitosos a partir de uma LEITURA DE OBSERVAÇÃO de ~1-2 minutos. A pessoa apareceu na câmera e agiu naturalmente — NENHUMA pergunta foi feita. Tudo vem do vídeo e do áudio: postura, expressões do rosto, tom de voz, presença. Você NÃO tem perguntas nem respostas.
 
-Você recebe um JSON com TODAS as variáveis observadas:
-- duration_s, voice_activity_pct (% do tempo com voz detectada), hour_local, time_of_day
-- cqi (quality_index 0-100 + 5 dimensões: clarity, authority, energy, rapport, learning)
-- engagement_pct (% engaged/neutral/disengaged ao longo da leitura)
-- top_signals (até 5, com count e avg_intensity 1-3)
-- signal_summary (todos os sinais detectados na sessão, com count e probabilidades)
-- dominant_signal, tension_signals[], positive_signals[] — derivados pra você ancorar
-- raw_signal_count
+QUEM VAI LER: uma pessoa comum, sem conhecimento técnico. O texto é PARA ELA.
 
-Concentre-se SÓ nos dados desta leitura — NUNCA invente perguntas, falas ou comparações que não existem. Nunca finja que houve conversa, entrevista ou perguntas. Se um dado faltar, seja honesto e breve.
+Você recebe um JSON com a leitura:
+- duration_s (duração), voice_activity_pct (% do tempo em que ela falou), hour_local, time_of_day
+- affect_au → LEITURA DO ROSTO (sempre disponível): tom emocional, bem-estar aparente, desconforto, tensão, esforço mental, expressividade, sorriso genuíno, inquietação e pontos de atenção
+- cqi → nota de presença 0-100 e 5 leituras: clarity (Clareza), authority (Firmeza), energy (Energia), rapport (Conexão), learning (Abertura)
+- engagement_pct → quanto do tempo esteve presente / neutro / distante
+- top_signals, signal_summary, dominant_signal, tension_signals[], positive_signals[]
+- leitura_local → se for true, a camada avançada NÃO estava disponível: cqi, engagement_pct e os sinais virão vazios/nulos. NESSE CASO baseie TODO o perfil na leitura do rosto (affect_au) + voz (voice_activity_pct) + duração. NÃO mencione indisponibilidade, falha, cota ou serviço externo — apenas escreva o perfil com o que existe, naturalmente.
+
+Use SÓ os dados desta leitura — NUNCA invente perguntas, falas ou comparações. Nunca finja que houve conversa ou entrevista. Se um dado faltar, simplesmente não fale dele.
+
+PROIBIDO no texto final (é um produto para leigos):
+- códigos e siglas técnicas: CQI, AU1/AU12/etc., FACS, PyAFAR, Duchenne, blendshape, valência, occRate, embotamento afetivo, affect_flatness
+- nomes de campos do JSON (engagement_pct, top_signals, affect_au…) e nomes de sinais em inglês
+- jargão clínico ou diagnóstico
+TRADUZA sempre: "nota de presença", "tom emocional", "sorriso que chega aos olhos", "testa franzida", "lábios apertados", "quanto seu rosto reage".
 
 REGRAS DE OUTPUT:
 - Markdown puro (sem code fences)
@@ -727,25 +734,25 @@ REGRAS DE OUTPUT:
 
 # 🧠 [ARQUÉTIPO em 4-6 palavras provocativas]
 
-[uma linha de hard data: CQI + sinais dominantes + % do tempo falando + engajamento]
+[uma linha com os números principais em linguagem simples: nota de presença (se houver), o que mais apareceu, % do tempo falando]
 
 ## Como você se apresenta
-1 parágrafo (3-4 frases) sobre a leitura geral — a presença, a energia e o que a câmera capta em você antes de qualquer palavra. Ancore em engagement_pct e nas dimensões CQI mais altas.
+1 parágrafo (3-4 frases) sobre a leitura geral — presença, energia e o que a câmera capta antes de qualquer palavra.
 
 ## O que seu corpo e sua voz entregaram
-3-5 observações específicas dos sinais dominantes (use signal_summary/top_signals + avg_intensity). Formato:
-- **[sinal]** (Nx) → [o que esse padrão sugere no comportamento]
+3-5 observações específicas. Formato:
+- **[o que apareceu, em português simples]** → [o que esse padrão sugere]
 
 ## Sua fragilidade oculta
-1 parágrafo (3-4 frases) sobre o sinal de tensão recorrente (tension_signals: hesitation/uncertainty/stress/confusion/etc.) que apareceu sem você perceber. Cite o sinal e a intensidade.
+1 parágrafo (3-4 frases) sobre o sinal de tensão ou desconforto recorrente que apareceu sem a pessoa perceber.
 
 ## Seu superpoder de comunicação
-1 parágrafo sobre a dimensão CQI mais alta cruzada com o sinal positivo dominante (positive_signals: confidence/engagement/interest/agreement).
+1 parágrafo sobre o ponto mais forte da leitura cruzado com o sinal positivo dominante.
 
 ## O conselho que você não pediu
 Uma frase acionável e específica, baseada no padrão observado.
 
-TOM: surpreender com insights NÃO-óbvios, jamais ofender, ser específico (use números e nomes dos sinais). Não enrole, não use clichês motivacionais.`;
+TOM: surpreender com insights NÃO-óbvios, jamais ofender, ser específico (use números). Não enrole, não use clichês motivacionais.`;
 
   const user = `## LEITURA DE OBSERVAÇÃO (só vídeo + áudio, sem perguntas)
 \`\`\`json
@@ -765,31 +772,34 @@ Produz o perfilamento agora, seguindo a estrutura exata.`;
 }
 
 function ruleBasedReport(p) {
-  const top = p.top_signals?.[0]?.type || 'sinal indeterminado';
-  const topCount = p.top_signals?.[0]?.count || 0;
-  const engPct = p.engagement_pct?.engaged ?? 0;
-  const cqi = p.cqi?.quality_index != null ? Math.round(p.cqi.quality_index) : '—';
-  const voice = p.voice_activity_pct;
+  const DIM_PT = { clarity: 'Clareza', authority: 'Firmeza', energy: 'Energia', rapport: 'Conexão', learning: 'Abertura' };
+  const a = p.affect_au || null;
+  const nota = p.cqi?.quality_index != null ? Math.round(p.cqi.quality_index) : null;
+  const voz = p.voice_activity_pct;
   const dims = p.cqi || {};
-  const topDim = ['clarity', 'authority', 'energy', 'rapport', 'learning']
-    .filter((d) => dims[d] != null)
-    .sort((a, b) => (dims[b] ?? 0) - (dims[a] ?? 0))[0];
-  const list = (p.signal_summary || p.top_signals || [])
-    .slice(0, 5)
-    .map((s) => `- **${s.type}** — ${s.count}x`)
-    .join('\n');
+  const topDim = Object.keys(DIM_PT).filter((d) => dims[d] != null).sort((x, y) => (dims[y] ?? 0) - (dims[x] ?? 0))[0];
 
-  return `# 🧠 Leitura comportamental
+  const linhas = [];
+  if (nota != null) linhas.push(`nota de presença ${nota}/100`);
+  if (a?.valence != null) linhas.push(`tom emocional ${Math.round(a.valence)}/100`);
+  if (voz != null) linhas.push(`${voz}% do tempo falando`);
+  if (p.duration_s) linhas.push(`${p.duration_s}s de leitura`);
 
-CQI ${cqi}/100 · ${engPct}% engajado · ${p.raw_signal_count || 0} sinais${voice != null ? ` · ${voice}% do tempo falando` : ''} ao longo de ${p.duration_s}s.
+  const obs = [];
+  if (a?.expressivity != null) obs.push(`- **Expressividade ${Math.round(a.expressivity)}/100** — o quanto seu rosto reagiu ao longo da leitura.`);
+  if (a?.duchenne_rate != null) obs.push(`- **Sorriso genuíno em ${Math.round(a.duchenne_rate * 100)}% do tempo** — sorriso que chega aos olhos.`);
+  if (a?.tension_stress != null) obs.push(`- **Tensão ${Math.round(a.tension_stress)}/100** — testa franzida e lábios apertados.`);
+  if (topDim) obs.push(`- **${DIM_PT[topDim]} ${Math.round(dims[topDim])}/100** — seu ponto mais forte nesta leitura.`);
+
+  return `# 🧠 Sua leitura
+
+${linhas.join(' · ') || 'Leitura registrada.'}
 
 ## O que a câmera captou
-O sinal dominante foi **${top}** (${topCount}x). Sua dimensão CQI mais forte foi **${topDim || '—'}** (${topDim ? Math.round(dims[topDim]) : '—'}/100).
+${obs.length ? obs.join('\n') : '- Leitura curta demais para destacar um padrão.'}
 
-## Sinais mais frequentes
-${list || '- (nenhum sinal detectado nesta leitura)'}
-
-*Report gerado pelo backend em modo fallback — sem IA conectada. Configure ANTHROPIC_API_KEY no Render pra ativar o perfilamento completo.*`;
+## Observação
+Este é um resumo automático dos sinais desta sessão. É um SINAL de comportamento — não é diagnóstico.`;
 }
 
 // ============= WS proxy =============
