@@ -15,18 +15,18 @@
 
 // ---- Metadados FACS das AUs que o PyAFAR detecta (adulto) ----
 export const AU_META = {
-  1:  { name: 'Inner Brow Raiser',    pt: 'sobrancelha interna eleva', valence: -0.3 },
-  2:  { name: 'Outer Brow Raiser',    pt: 'sobrancelha externa eleva', valence:  0.0 },
-  4:  { name: 'Brow Lowerer',         pt: 'testa franzida',            valence: -0.6 },
-  6:  { name: 'Cheek Raiser',         pt: 'bochecha eleva (Duchenne)', valence:  0.8, intensity: true },
-  7:  { name: 'Lid Tightener',        pt: 'pálpebra tensiona',         valence: -0.4 },
-  10: { name: 'Upper Lip Raiser',     pt: 'lábio superior eleva (nojo)', valence: -0.6, intensity: true },
-  12: { name: 'Lip Corner Puller',    pt: 'canto da boca puxa (sorriso)', valence: 0.7, intensity: true },
-  14: { name: 'Dimpler',              pt: 'covinha (desdém/ceticismo)', valence: -0.3, intensity: true },
-  15: { name: 'Lip Corner Depressor', pt: 'canto da boca abaixa (tristeza)', valence: -0.6 },
-  17: { name: 'Chin Raiser',          pt: 'queixo eleva (dúvida)',     valence: -0.3, intensity: true },
-  23: { name: 'Lip Tightener',        pt: 'lábios apertam',            valence: -0.4 },
-  24: { name: 'Lip Pressor',          pt: 'lábios pressionam',         valence: -0.4 },
+  1:  { name: 'Inner Brow Raiser',    pt: 'sobrancelhas erguidas no centro (preocupação)', valence: -0.3 },
+  2:  { name: 'Outer Brow Raiser',    pt: 'sobrancelhas erguidas (surpresa/atenção)', valence:  0.0 },
+  4:  { name: 'Brow Lowerer',         pt: 'testa franzida (concentração ou incômodo)', valence: -0.6 },
+  6:  { name: 'Cheek Raiser',         pt: 'olhos sorriem junto (sorriso genuíno)', valence:  0.8, intensity: true },
+  7:  { name: 'Lid Tightener',        pt: 'olhar tenso/apertado', valence: -0.4 },
+  10: { name: 'Upper Lip Raiser',     pt: 'lábio superior erguido (rejeição)', valence: -0.6, intensity: true },
+  12: { name: 'Lip Corner Puller',    pt: 'sorriso', valence: 0.7, intensity: true },
+  14: { name: 'Dimpler',              pt: 'canto da boca contraído (reserva)', valence: -0.3, intensity: true },
+  15: { name: 'Lip Corner Depressor', pt: 'cantos da boca para baixo (desânimo)', valence: -0.6 },
+  17: { name: 'Chin Raiser',          pt: 'queixo erguido (dúvida)', valence: -0.3, intensity: true },
+  23: { name: 'Lip Tightener',        pt: 'lábios apertados (contenção)', valence: -0.4 },
+  24: { name: 'Lip Pressor',          pt: 'lábios pressionados (contenção)', valence: -0.4 },
 };
 const ADULT_OCC = [1, 2, 4, 6, 7, 10, 12, 14, 15, 17, 23, 24];
 const INT_AUS = [6, 10, 12, 14, 17];
@@ -170,8 +170,8 @@ export function aggregateAU(frames, opts = {}) {
 
   // ---- Flags NR-1 (SINAL, não diagnóstico) ----
   const flags = [];
-  if (tension != null && tension >= 45) flags.push({ signal: 'tensao_facial_sustentada', intensity: round(tension / 100, 2), evidence: 'AU4/AU7/AU23/AU24 recorrentes' });
-  if (negative != null && positive != null && negative - positive >= 20) flags.push({ signal: 'afeto_negativo_predominante', intensity: round((negative - positive) / 100, 2), evidence: `neg ${negative} vs pos ${positive}` });
+  if (tension != null && tension >= 45) flags.push({ signal: 'tensão facial sustentada', intensity: round(tension / 100, 2), evidence: 'AU4/AU7/AU23/AU24 recorrentes' });
+  if (negative != null && positive != null && negative - positive >= 20) flags.push({ signal: 'desconforto predominante', intensity: round((negative - positive) / 100, 2), evidence: `neg ${negative} vs pos ${positive}` });
   // Embotamento afetivo — um rosto CALMO/PARADO é NORMAL, não é embotamento.
   // O critério antigo (affect_flatness >= 70) disparava em QUALQUER rosto neutro:
   // análise de sensibilidade mostrou neutro típico em ~82 de embotamento, ou seja,
@@ -191,17 +191,17 @@ export function aggregateAU(frames, opts = {}) {
     emotional_variability != null && emotional_variability <= flatVarMax
   ) {
     flags.push({
-      signal: 'embotamento_afetivo',
+      signal: 'baixa reatividade emocional',
       intensity: round(clamp(affect_flatness / 100, 0, 1), 2),
       evidence: `ausência sustentada de reatividade facial (expressividade ${expressivity}, variabilidade ${emotional_variability}, ${N} frames)`,
     });
   }
-  if (trustBlink && eye_openness_mean != null && blink_proxy != null && blink_proxy >= 8) flags.push({ signal: 'sinais_de_fadiga', intensity: round(clamp(blink_proxy / 20, 0, 1), 2), evidence: `piscar elevado (${blink_proxy}/${sourceFps}f)` });
-  if (head_restlessness >= 12) flags.push({ signal: 'agitacao_motora', intensity: round(clamp(head_restlessness / 30, 0, 1), 2), evidence: 'alta variação de pose da cabeça' });
+  if (trustBlink && eye_openness_mean != null && blink_proxy != null && blink_proxy >= 8) flags.push({ signal: 'sinais de cansaço', intensity: round(clamp(blink_proxy / 20, 0, 1), 2), evidence: `piscar elevado (${blink_proxy}/${sourceFps}f)` });
+  if (head_restlessness >= 12) flags.push({ signal: 'inquietação', intensity: round(clamp(head_restlessness / 30, 0, 1), 2), evidence: 'alta variação de pose da cabeça' });
 
   const dominant = [
-    ['afeto positivo', positive], ['afeto negativo', negative], ['tensão', tension],
-    ['carga cognitiva', cogload], ['surpresa/atenção', surprise],
+    ['bem-estar aparente', positive], ['desconforto', negative], ['tensão', tension],
+    ['esforço mental', cogload], ['surpresa/atenção', surprise],
   ].filter(([, v]) => v != null).sort((a, b) => b[1] - a[1])[0];
 
   return {
@@ -247,22 +247,22 @@ export function aggregateAU(frames, opts = {}) {
 export function auAffectSummaryText(a) {
   const pct = (v) => (v == null ? '—' : `${Math.round(v)}`);
   const topAUs = Object.entries(a.occRate || {})
-    .filter(([, r]) => r != null).sort((x, y) => y[1] - x[1]).slice(0, 4)
-    .map(([n, r]) => `AU${n} ${AU_META[n]?.pt || ''} ${Math.round(r * 100)}%`).join('; ');
+    .filter(([, r]) => r != null && r > 0.02).sort((x, y) => y[1] - x[1]).slice(0, 4)
+    .map(([n, r]) => `${AU_META[n]?.pt || ''} ${Math.round(r * 100)}%`).join('; ');
   const flags = (a.flags || []).map((f) => f.signal).join(', ') || 'nenhum';
   return [
-    `Afeto (FACS/PyAFAR): valência ${pct(a.valence)}/100 · positivo ${pct(a.positive)} · negativo ${pct(a.negative)} · tensão ${pct(a.tension)} · carga cognitiva ${pct(a.cogload)}.`,
-    `Expressividade ${pct(a.expressivity)} (embotamento ${pct(a.affect_flatness)}), variabilidade emocional ${pct(a.emotional_variability)}.`,
-    `Sorriso: ${Math.round((a.duchenne_rate || 0) * 100)}% Duchenne (genuíno vs social ${a.genuine_smile_ratio ?? '—'}).`,
-    `AUs mais ativas: ${topAUs || '—'}.`,
-    `Dominante: ${a.dominant || '—'}. Flags NR-1 (sinal, não diagnóstico): ${flags}.`,
+    `Leitura facial: tom emocional ${pct(a.valence)}/100 · bem-estar aparente ${pct(a.positive)} · desconforto ${pct(a.negative)} · tensão ${pct(a.tension)} · esforço mental ${pct(a.cogload)}.`,
+    `Expressividade ${pct(a.expressivity)} (quanto o rosto reage), oscilação emocional ${pct(a.emotional_variability)}.`,
+    `Sorriso genuíno em ${Math.round((a.duchenne_rate || 0) * 100)}% do tempo (proporção genuíno vs. social ${a.genuine_smile_ratio ?? '—'}).`,
+    `Movimentos faciais mais frequentes: ${topAUs || '—'}.`,
+    `Predominante: ${a.dominant || '—'}. Pontos de atenção (sinal, não diagnóstico): ${flags}.`,
   ].join(' ');
 }
 
 // Bloco de instrução para o prompt do relatório (injeta o significado das AUs).
 export function auPromptBlock(agg) {
   if (!agg) return '';
-  return `\n\nSINAIS FACIAIS FACS (PyAFAR) — camada de Action Units desta leitura:
+  return `\n\nLEITURA FACIAL (musculatura do rosto) desta sessão:
 ${agg.signal_summary}
-Use estes sinais faciais como EVIDÊNCIA OBJETIVA (musculatura facial) ao descrever afeto, tensão e engajamento. AU6+AU12 = alegria genuína (Duchenne); AU4/AU7/AU23/AU24 = tensão; AU15/AU17/AU1 = tristeza; AU10/AU14 = nojo/desdém. Embotamento afetivo alto (pouca expressão) é sinal de retraimento/exaustão — trate como SINAL, jamais diagnóstico clínico.`;
+Use estes sinais faciais como EVIDÊNCIA OBJETIVA (musculatura do rosto) ao descrever emoção, tensão e presença. Escreva SEMPRE em linguagem simples, para uma pessoa leiga: NUNCA cite códigos técnicos, siglas ou nomes de músculos — descreva o que a pessoa faria com o rosto (ex.: 'sorriso que chega aos olhos', 'testa franzida', 'lábios apertados'). Baixa reatividade emocional (rosto pouco expressivo por muito tempo) é sinal de retraimento/cansaço — trate como SINAL, jamais diagnóstico clínico.`;
 }

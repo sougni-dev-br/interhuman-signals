@@ -6,18 +6,18 @@
 let faceMod = null;
 
 const SIGNAL_TYPES = [
-  { key: 'engagement', label: 'Engagement' },
-  { key: 'interest', label: 'Interest' },
-  { key: 'agreement', label: 'Agreement' },
-  { key: 'confidence', label: 'Confidence' },
-  { key: 'confusion', label: 'Confusion' },
-  { key: 'hesitation', label: 'Hesitation' },
-  { key: 'uncertainty', label: 'Uncertainty' },
-  { key: 'skepticism', label: 'Skepticism' },
-  { key: 'disagreement', label: 'Disagreement' },
-  { key: 'frustration', label: 'Frustration' },
-  { key: 'stress', label: 'Stress' },
-  { key: 'disengagement', label: 'Disengagement' },
+  { key: 'engagement', label: 'Presente' },
+  { key: 'interest', label: 'Interessado' },
+  { key: 'agreement', label: 'De acordo' },
+  { key: 'confidence', label: 'Seguro' },
+  { key: 'confusion', label: 'Confuso' },
+  { key: 'hesitation', label: 'Hesitante' },
+  { key: 'uncertainty', label: 'Em dúvida' },
+  { key: 'skepticism', label: 'Desconfiado' },
+  { key: 'disagreement', label: 'Discordando' },
+  { key: 'frustration', label: 'Frustrado' },
+  { key: 'stress', label: 'Sob pressão' },
+  { key: 'disengagement', label: 'Distante' },
 ];
 
 const DIMS = ['clarity', 'authority', 'energy', 'rapport', 'learning'];
@@ -35,6 +35,7 @@ const AUDIO_RMS_THRESHOLD = IS_MOBILE ? 4.5 : 6;
 
 // ============= State =============
 const state = {
+  localMode: false, // true = leitura local (camera no dispositivo), sem analise avancada
   phase: 'idle',
   ws: null,
   mediaStream: null,
@@ -470,6 +471,8 @@ if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
 
 async function startSession() {
   startBtn.disabled = true;
+  state.localMode = false;
+  hideLocalBanner();
   setPhase('connecting');
   connectingText.textContent = 'solicitando câmera + microfone…';
   setConn('solicitando câmera…', 'badge-connecting');
@@ -526,10 +529,17 @@ async function startSession() {
   };
   state.ws.onerror = () => {
     pushRaw('error', 'ws.onerror', { message: 'WebSocket error' });
-    setConn('erro WS', 'badge-error');
+    if (state.phase === 'streaming' || state.phase === 'connecting') { enterLocalMode('queda'); return; }
+    setConn('sem conexao', 'badge-error');
     setPhase('idle');
   };
   state.ws.onclose = (e) => {
+    // Sessao em andamento: seguimos em modo local — a camera continua ligada e o
+    // perfil ainda sera gerado. So encerramos de fato se nao ha sessao ativa.
+    if (state.phase === 'streaming' || state.phase === 'connecting') {
+      enterLocalMode('queda');
+      return;
+    }
     setConn(`desconectado (${e.code})`, 'badge-idle');
     stopAllMedia();
     if (state.phase !== 'reporting' && state.phase !== 'finalizing') setPhase('idle');
@@ -718,11 +728,42 @@ function sessionVoiceActivity() {
 // a pessoa clicar em "Finalizar", que dispara o relatório só dos sinais.
 function beginObservation() {
   setPhase('streaming');
-  setConn('lendo em tempo real', 'badge-streaming');
+  setConn(state.localMode ? 'lendo no dispositivo' : 'lendo em tempo real', 'badge-streaming');
   setupAudioMonitor();
   startBtn.disabled = true;
   stopBtn.disabled = false;
   stopBtn.textContent = 'Finalizar & gerar perfil';
+}
+
+// ============= Modo local (leitura no dispositivo) =============
+// A analise avancada (servico externo) pode ficar indisponivel — cota, queda, rede.
+// Quando isso acontece a sessao NAO pode morrer: seguimos lendo o rosto no proprio
+// dispositivo (camera + microfone) e o perfil no fim e gerado com esses sinais.
+function enterLocalMode(motivo) {
+  if (state.localMode) return;
+  state.localMode = true;
+  pushRaw('proxy', 'modo_local', { motivo });
+  showLocalBanner(motivo);
+  setConn('lendo no dispositivo', 'badge-streaming');
+  // Se a sessao ainda nem tinha comecado (falhou antes do session.ready), comeca agora.
+  if (state.phase === 'connecting') beginObservation();
+}
+
+function showLocalBanner(motivo) {
+  const el = document.getElementById('localBanner');
+  if (!el) return;
+  const txt = document.getElementById('localBannerText');
+  if (txt) {
+    txt.textContent = motivo === 'cota'
+      ? 'A leitura avancada esta temporariamente indisponivel. Sua sessao continua normalmente pela camera do seu dispositivo.'
+      : 'A conexao com a leitura avancada caiu. Sua sessao continua normalmente pela camera do seu dispositivo.';
+  }
+  el.hidden = false;
+}
+
+function hideLocalBanner() {
+  const el = document.getElementById('localBanner');
+  if (el) el.hidden = true;
 }
 
 // ============= Backend endpoints (v2 routes) =============
@@ -766,6 +807,7 @@ function buildReportPayload() {
     raw_signal_count: state.history.length,
     raw_events: buildRawEvents(), // EGO Pulse #1 — série granular p/ o servidor persistir
     au_source: 'mediapipe',
+    leitura_local: state.localMode, // true = so sinais do dispositivo (analise avancada indisponivel)
     au_frames: downsampleFrames(faceMod ? faceMod.getAuFrames() : [], 600), // Action Units faciais on-device (af.js agrega)
   };
 }
@@ -959,13 +1001,20 @@ function handleServerMessage(text) {
     return;
   }
   if (t === 'proxy.upstream_close') {
-    setConn('upstream fechou', 'badge-error');
     pushRaw('proxy', 'upstream_close', msg.data);
+    enterLocalMode('queda');
     return;
   }
   if (t === 'proxy.upstream_error') {
-    setConn('upstream erro', 'badge-error');
     pushRaw('error', 'upstream_error', msg.data);
+    enterLocalMode('queda');
+    return;
+  }
+  // Erro vindo do proprio servico de analise (ex.: cota esgotada) — nao derruba a sessao.
+  if (t === 'error') {
+    const code = msg.data?.code || '';
+    pushRaw('error', 'analise_externa', msg.data);
+    enterLocalMode(code === 'ih3003' ? 'cota' : 'queda');
     return;
   }
   if (t === 'session.ready') {
