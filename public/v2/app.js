@@ -530,7 +530,7 @@ async function startSession() {
   state.ws.onerror = () => {
     pushRaw('error', 'ws.onerror', { message: 'WebSocket error' });
     if (state.phase === 'streaming' || state.phase === 'connecting') { enterLocalMode('queda'); return; }
-    setConn('sem conexao', 'badge-error');
+    setConn('sem conexão', 'badge-error');
     setPhase('idle');
   };
   state.ws.onclose = (e) => {
@@ -755,8 +755,8 @@ function showLocalBanner(motivo) {
   const txt = document.getElementById('localBannerText');
   if (txt) {
     txt.textContent = motivo === 'cota'
-      ? 'A leitura avancada esta temporariamente indisponivel. Sua sessao continua normalmente pela camera do seu dispositivo.'
-      : 'A conexao com a leitura avancada caiu. Sua sessao continua normalmente pela camera do seu dispositivo.';
+      ? 'A leitura avançada está temporariamente indisponível. Sua sessão continua normalmente pela câmera do seu dispositivo.'
+      : 'A conexão com a leitura avançada caiu. Sua sessão continua normalmente pela câmera do seu dispositivo.';
   }
   el.hidden = false;
 }
